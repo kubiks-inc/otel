@@ -1,11 +1,10 @@
 name: Release
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
-  # TODO: enable auto-release
-  # push:
-  #   branches:
-  #     - main
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -13,9 +12,6 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v3
