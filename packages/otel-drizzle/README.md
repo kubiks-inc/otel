@@ -2,9 +2,9 @@
 
 OpenTelemetry instrumentation for [Drizzle ORM](https://orm.drizzle.team/). Add distributed tracing to your database queries with a single line of code.
 
-![Drizzle ORM Trace Visualization](../../images/otel-drizzle-trace.png)
+![Drizzle ORM Trace Visualization](https://github.com/kubiks-inc/otel/blob/main/images/otel-drizzle-trace.png)
 
-*Visualize your database queries with detailed span information including operation type, SQL statements, and performance metrics.*
+_Visualize your database queries with detailed span information including operation type, SQL statements, and performance metrics._
 
 ## Installation
 
@@ -87,13 +87,13 @@ Each database query automatically creates a span with rich telemetry data:
 
 The instrumentation adds the following attributes to each span following [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/database/):
 
-| Attribute | Description | Example |
-|-----------|-------------|---------|
-| `db.operation` | SQL operation type | `SELECT` |
-| `db.statement` | Full SQL query | `select "id", "name" from "users"...` |
-| `db.system` | Database system | `postgresql` |
-| `db.name` | Database name | `myapp` |
-| `operation.name` | Client operation name | `kubiks_otel-drizzle.client` |
+| Attribute        | Description           | Example                               |
+| ---------------- | --------------------- | ------------------------------------- |
+| `db.operation`   | SQL operation type    | `SELECT`                              |
+| `db.statement`   | Full SQL query        | `select "id", "name" from "users"...` |
+| `db.system`      | Database system       | `postgresql`                          |
+| `db.name`        | Database name         | `myapp`                               |
+| `operation.name` | Client operation name | `kubiks_otel-drizzle.client`          |
 
 ## License
 
