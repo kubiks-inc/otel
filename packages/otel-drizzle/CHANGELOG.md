@@ -1,5 +1,13 @@
 # @kubiks/otel-drizzle
 
+## 2.0.1
+
+### Patch Changes
+
+- [`8c1f41e`](https://github.com/kubiks-inc/otel/commit/8c1f41eeb253a746c0b913b9a34d0af888e60fee) Thanks [@alex-holovach](https://github.com/alex-holovach)! - update repo URL
+
+- [`b385007`](https://github.com/kubiks-inc/otel/commit/b385007e44b410a2ef97aeb8bcc1667233031ed7) Thanks [@alex-holovach](https://github.com/alex-holovach)! - update package.json
+
 ## 2.0.0
 
 ### Major Changes
