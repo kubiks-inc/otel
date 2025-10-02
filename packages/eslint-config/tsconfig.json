@@ -1,9 +1,0 @@
-{
-  "extends": "typescript-config/tsconfig.base",
-  "compilerOptions": {
-    "incremental": true,
-    "allowJs": true,
-    "checkJs": true,
-    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo.json"
-  }
-}
