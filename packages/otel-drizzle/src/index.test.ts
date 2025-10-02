@@ -10,7 +10,7 @@ import { instrumentDrizzle, type InstrumentDrizzleConfig } from "./index";
 interface MockDrizzleClient {
   // Use `any` to accommodate callback signatures under test.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query: (...args: any[]) => Promise<unknown> | unknown;
+  query: (...args: any[]) => unknown;
 }
 
 describe("instrumentDrizzle", () => {
@@ -47,9 +47,8 @@ describe("instrumentDrizzle", () => {
   });
 
   it("records a successful query", async () => {
-    await Promise.resolve(); // Satisfy eslint require-await
     const client: MockDrizzleClient = {
-      query: vi.fn(async () => ({ rows: [{ id: 1 }] })),
+      query: vi.fn(() => Promise.resolve({ rows: [{ id: 1 }] })),
     };
 
     instrumentDrizzle(client);
@@ -74,9 +73,7 @@ describe("instrumentDrizzle", () => {
   it("records errors and propagates them", async () => {
     const error = new Error("boom");
     const client: MockDrizzleClient = {
-      query: vi.fn(async () => {
-        throw error;
-      }),
+      query: vi.fn(() => Promise.reject(error)),
     };
 
     instrumentDrizzle(client);
@@ -119,9 +116,8 @@ describe("instrumentDrizzle", () => {
   });
 
   it("respects custom configuration", async () => {
-    await Promise.resolve(); // Satisfy eslint require-await
     const client: MockDrizzleClient = {
-      query: vi.fn(async () => ({ rows: [] })),
+      query: vi.fn(() => Promise.resolve({ rows: [] })),
     };
 
     const config: InstrumentDrizzleConfig = {
@@ -146,10 +142,9 @@ describe("instrumentDrizzle", () => {
     expect(span.attributes["db.statement"]).toBe("SELECT * FROM users");
   });
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   it("includes network peer attributes when configured", async () => {
     const client: MockDrizzleClient = {
-      query: vi.fn(async () => ({ rows: [] })),
+      query: vi.fn(() => Promise.resolve({ rows: [] })),
     };
 
     instrumentDrizzle(client, {
@@ -173,7 +168,7 @@ describe("instrumentDrizzle", () => {
 
   it("truncates long query text", async () => {
     const client: MockDrizzleClient = {
-      query: vi.fn(async () => ({ rows: [] })),
+      query: vi.fn(() => Promise.resolve({ rows: [] })),
     };
 
     const longQuery = `SELECT ${"a, ".repeat(1000)}b FROM table`;
@@ -194,9 +189,8 @@ describe("instrumentDrizzle", () => {
   });
 
   it("handles query objects with sql property", async () => {
-    await Promise.resolve(); // Satisfy eslint require-await
     const client: MockDrizzleClient = {
-      query: vi.fn(async () => ({ rows: [] })),
+      query: vi.fn(() => Promise.resolve({ rows: [] })),
     };
 
     instrumentDrizzle(client);
@@ -216,7 +210,7 @@ describe("instrumentDrizzle", () => {
 
   it("handles query objects with text property", async () => {
     const client: MockDrizzleClient = {
-      query: vi.fn(async () => ({ rows: [] })),
+      query: vi.fn(() => Promise.resolve({ rows: [] })),
     };
 
     instrumentDrizzle(client);
@@ -234,9 +228,8 @@ describe("instrumentDrizzle", () => {
   });
 
   it("does not capture query text when disabled", async () => {
-    await Promise.resolve(); // Satisfy eslint require-await
     const client: MockDrizzleClient = {
-      query: vi.fn(async () => ({ rows: [] })),
+      query: vi.fn(() => Promise.resolve({ rows: [] })),
     };
 
     instrumentDrizzle(client, { captureQueryText: false });

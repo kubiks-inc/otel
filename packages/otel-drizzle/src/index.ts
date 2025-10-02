@@ -22,7 +22,7 @@ export const SEMATTRS_NET_PEER_PORT = "net.peer.port";
 
 type QueryCallback = (error: unknown, result: unknown) => void;
 
-type QueryFunction = (...args: unknown[]) => Promise<unknown> | unknown;
+type QueryFunction = (...args: unknown[]) => unknown;
 
 interface DrizzleClientLike {
   query: QueryFunction;
