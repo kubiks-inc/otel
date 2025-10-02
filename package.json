@@ -7,8 +7,6 @@
     "build": "turbo build",
     "dev": "turbo --filter sample dev",
     "e2e-test": "turbo e2e-test",
-    "eslint": "turbo --concurrency 1 --continue eslint",
-    "eslint-fix": "turbo eslint -- --fix",
     "release": "pnpm build && changeset publish ${TAG:+--tag $TAG}",
     "type-check": "turbo --continue type-check",
     "unit-test": "turbo unit-test",

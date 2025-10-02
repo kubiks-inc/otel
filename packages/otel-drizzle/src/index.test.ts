@@ -8,8 +8,6 @@ import {
 import { instrumentDrizzle, type InstrumentDrizzleConfig } from "./index";
 
 interface MockDrizzleClient {
-  // Use `any` to accommodate callback signatures under test.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   query: (...args: any[]) => unknown;
 }
 
@@ -287,17 +285,13 @@ describe("instrumentDrizzle", () => {
   });
 
   it("returns client unchanged if query is not a function", () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
     const client = { query: "not a function" } as any;
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const result = instrumentDrizzle(client);
     expect(result).toBe(client);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     expect(result.query).toBe("not a function");
   });
 
   it("returns client unchanged if client is null", () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
     const result = instrumentDrizzle(null as any);
     expect(result).toBeNull();
   });

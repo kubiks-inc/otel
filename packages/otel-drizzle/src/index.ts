@@ -182,7 +182,6 @@ export function instrumentDrizzle<TClient extends DrizzleClientLike>(
   client: TClient,
   config?: InstrumentDrizzleConfig,
 ): TClient {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (!client) {
     return client;
   }

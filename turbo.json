@@ -22,9 +22,6 @@
       "dependsOn": ["^build"],
       "cache": false
     },
-    "eslint": {
-      "dependsOn": ["^build"]
-    },
     "lint-copy": {
       "inputs": ["**/*.{md,mdx}"]
     },
