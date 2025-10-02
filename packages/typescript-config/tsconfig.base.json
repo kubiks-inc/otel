@@ -1,5 +1,5 @@
 {
-  "extends": "@kubiks/style-guide/typescript.json",
+  "extends": "@vercel/style-guide/typescript.json",
   "compilerOptions": {
     "allowJs": true,
     "incremental": true,
