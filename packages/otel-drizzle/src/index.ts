@@ -8,7 +8,7 @@ import {
 
 const DEFAULT_TRACER_NAME = "@kubiks/otel-drizzle";
 const DEFAULT_DB_SYSTEM = "postgresql";
-const INSTRUMENTED_FLAG = "__vercelOtelDrizzleInstrumented" as const;
+const INSTRUMENTED_FLAG = "__kubiksOtelDrizzleInstrumented" as const;
 
 // Semantic conventions for database attributes
 export const SEMATTRS_DB_SYSTEM = "db.system";
@@ -33,9 +33,9 @@ interface DrizzleClientLike {
  * Configuration options for Drizzle instrumentation.
  */
 export interface InstrumentDrizzleConfig {
-/**
- * Custom tracer name. Defaults to "\@kubiks/otel-drizzle".
- */
+  /**
+   * Custom tracer name. Defaults to "\@kubiks/otel-drizzle".
+   */
   tracerName?: string;
 
   /**
