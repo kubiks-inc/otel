@@ -5,7 +5,7 @@
   "description": "Shared TypeScript configs for this monorepo",
   "scripts": {},
   "dependencies": {
-    "@vercel/style-guide": "4.0.2",
+    "@kubiks/style-guide": "4.0.2",
     "typescript": "^5",
     "typescript-plugin-css-modules": "5.0.1"
   }

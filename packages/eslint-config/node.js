@@ -4,8 +4,8 @@ const project = resolve(process.cwd(), "tsconfig.json");
 
 module.exports = {
   extends: [
-    "@vercel/style-guide/eslint/node",
-    "@vercel/style-guide/eslint/typescript",
+    "@kubiks/style-guide/eslint/node",
+    "@kubiks/style-guide/eslint/typescript",
   ].map((config) => require.resolve(config)),
   parserOptions: {
     project,

@@ -29,7 +29,7 @@ importers:
       '@types/eslint':
         specifier: ^8.4.6
         version: 8.56.2
-      '@vercel/style-guide':
+      '@kubiks/style-guide':
         specifier: 4.0.2
         version: 4.0.2(@next/eslint-plugin-next@14.1.1-canary.65)(eslint@8.40.0)(prettier@2.8.8)(typescript@5.3.3)
       chalk:
@@ -105,7 +105,7 @@ importers:
 
   packages/typescript-config:
     dependencies:
-      '@vercel/style-guide':
+      '@kubiks/style-guide':
         specifier: 4.0.2
         version: 4.0.2(eslint@8.56.0)(prettier@2.8.8)(typescript@5.3.3)
       typescript:
@@ -844,7 +844,7 @@ packages:
   '@ungap/structured-clone@1.2.0':
     resolution: {integrity: sha512-zuVdFrMJiuCDQUMCzQaD6KL28MjnqqN8XnAqiEq9PNm/hCPTSGfrXCOfwj1ow4LFb/tNymJPwsNbVePc1xFqrQ==}
 
-  '@vercel/style-guide@4.0.2':
+  '@kubiks/style-guide@4.0.2':
     resolution: {integrity: sha512-FroL+oOePzhw7n/I+f7zr4WNroGHT/+2TlW6WH9+CVSjMNsEyu7Qstj2mI5gWIBjT1Y2ZImKPppCzI2cIYmNZw==}
     engines: {node: '>=16'}
     peerDependencies:
@@ -4388,7 +4388,7 @@ snapshots:
 
   '@ungap/structured-clone@1.2.0': {}
 
-  '@vercel/style-guide@4.0.2(@next/eslint-plugin-next@14.1.1-canary.65)(eslint@8.40.0)(prettier@2.8.8)(typescript@5.3.3)':
+  '@kubiks/style-guide@4.0.2(@next/eslint-plugin-next@14.1.1-canary.65)(eslint@8.40.0)(prettier@2.8.8)(typescript@5.3.3)':
     dependencies:
       '@babel/core': 7.23.7
       '@babel/eslint-parser': 7.23.3(@babel/core@7.23.7)(eslint@8.40.0)
@@ -4420,7 +4420,7 @@ snapshots:
       - jest
       - supports-color
 
-  '@vercel/style-guide@4.0.2(eslint@8.56.0)(prettier@2.8.8)(typescript@5.3.3)':
+  '@kubiks/style-guide@4.0.2(eslint@8.56.0)(prettier@2.8.8)(typescript@5.3.3)':
     dependencies:
       '@babel/core': 7.23.7
       '@babel/eslint-parser': 7.23.3(@babel/core@7.23.7)(eslint@8.56.0)
