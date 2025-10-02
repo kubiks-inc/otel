@@ -7,13 +7,7 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [
-    "e2e",
-    "sample",
-    "bridge-emulator",
-    "collector",
-    "multiple-exporters"
-  ],
+  "ignore": [],
   "snapshot": {
     "useCalculatedVersion": true
   }
