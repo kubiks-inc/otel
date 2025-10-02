@@ -20,7 +20,7 @@ yarn add @kubiks/otel-drizzle
 
 ## Usage
 
-Simply wrap your Drizzle client with `instrumentDrizzle()`:
+Simply wrap your database connection pool with `instrumentDrizzle()` before passing it to Drizzle:
 
 ```typescript
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -28,7 +28,8 @@ import { Pool } from "pg";
 import { instrumentDrizzle } from "@kubiks/otel-drizzle";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const db = instrumentDrizzle(drizzle(pool));
+const instrumentedPool = instrumentDrizzle(pool);
+const db = drizzle(instrumentedPool);
 
 // That's it! All queries are now traced automatically
 const users = await db.select().from(usersTable);
@@ -37,28 +38,38 @@ const users = await db.select().from(usersTable);
 ### Optional Configuration
 
 ```typescript
-instrumentDrizzle(db, {
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const instrumentedPool = instrumentDrizzle(pool, {
   dbSystem: "postgresql", // Database type (default: 'postgresql')
   dbName: "myapp", // Database name for spans
   captureQueryText: true, // Include SQL in traces (default: true)
   maxQueryTextLength: 1000, // Max SQL length (default: 1000)
+  peerName: "db.example.com", // Database server hostname
+  peerPort: 5432, // Database server port
 });
+const db = drizzle(instrumentedPool);
 ```
 
 ### Works with Any Database
 
 ```typescript
-// PostgreSQL
+// PostgreSQL with node-postgres
 import { drizzle } from "drizzle-orm/node-postgres";
-const db = instrumentDrizzle(drizzle(pool));
+import { Pool } from "pg";
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = drizzle(instrumentDrizzle(pool));
 
-// MySQL
+// MySQL with mysql2
 import { drizzle } from "drizzle-orm/mysql2";
-const db = instrumentDrizzle(drizzle(connection), { dbSystem: "mysql" });
+import mysql from "mysql2/promise";
+const connection = await mysql.createConnection(process.env.DATABASE_URL);
+const db = drizzle(instrumentDrizzle(connection, { dbSystem: "mysql" }));
 
-// SQLite
+// SQLite with better-sqlite3
 import { drizzle } from "drizzle-orm/better-sqlite3";
-const db = instrumentDrizzle(drizzle(sqlite), { dbSystem: "sqlite" });
+import Database from "better-sqlite3";
+const sqlite = new Database("database.db");
+const db = drizzle(instrumentDrizzle(sqlite, { dbSystem: "sqlite" }));
 ```
 
 ## What You Get
