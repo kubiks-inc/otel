@@ -1,9 +1,5 @@
 name: Release
 
-env:
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
-
 on:
   workflow_dispatch:
   # TODO: enable auto-release
@@ -40,4 +36,4 @@ jobs:
           version: pnpm version-packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN_ELEVATED }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
