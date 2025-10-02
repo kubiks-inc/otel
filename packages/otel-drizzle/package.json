@@ -8,7 +8,7 @@
   "description": "OpenTelemetry instrumentation for Drizzle ORM",
   "author": "Kubiks",
   "license": "MIT",
-  "repository": "kubiks/otel",
+  "repository": "kubiks-inc/otel",
   "sideEffects": false,
   "type": "module",
   "exports": {
