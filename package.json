@@ -1,0 +1,30 @@
+{
+  "name": "otel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "",
+  "scripts": {
+    "build": "turbo build",
+    "changeset": "changeset add",
+    "dev": "turbo --filter sample dev",
+    "e2e-test": "turbo e2e-test",
+    "release": "pnpm build && changeset publish ${TAG:+--tag $TAG}",
+    "type-check": "turbo --continue type-check",
+    "unit-test": "turbo unit-test",
+    "version-packages": "changeset version && pnpm i --no-frozen-lockfile && git add ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@9.4.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.5.1",
+    "@changesets/cli": "^2.27.1",
+    "prettier": "^3.1.1",
+    "turbo": "^1.11.3"
+  }
+}
