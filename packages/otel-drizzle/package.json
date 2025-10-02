@@ -1,0 +1,63 @@
+{
+  "name": "@kubiks/otel-drizzle",
+  "version": "1.0.0",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "OpenTelemetry instrumentation for Drizzle ORM",
+  "author": "Kubiks",
+  "license": "MIT",
+  "repository": "kubiks/otel",
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/types/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": "^18.19.0 || >=20.6.0"
+  },
+  "scripts": {
+    "build": "pnpm clean && pnpm build-only && pnpm build-types",
+    "build-only": "pnpm tsx build.ts",
+    "build-types": "tsc --noEmit false --declaration --emitDeclarationOnly --stripInternal --declarationDir dist/types src/index.ts",
+    "clean": "rimraf dist",
+    "eslint": "eslint-runner",
+    "eslint-fix": "eslint-runner --fix",
+    "prepublishOnly": "pnpm build",
+    "type-check": "tsc --noEmit",
+    "unit-test": "vitest --run",
+    "unit-test-watch": "vitest"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-trace-base": "^2.1.0",
+    "@types/node": "18.15.11",
+    "@types/pg": "^8.11.10",
+    "drizzle-orm": "^0.36.4",
+    "esbuild": "^0.19.4",
+    "eslint-config": "workspace:*",
+    "postgres": "^3.4.5",
+    "rimraf": "3.0.2",
+    "tsx": "^4.6.2",
+    "typescript": "^5",
+    "typescript-config": "workspace:*",
+    "vitest": "0.33.0"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": ">=1.9.0 <2.0.0",
+    "drizzle-orm": ">=0.28.0"
+  }
+}

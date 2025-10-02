@@ -1,0 +1,21 @@
+{
+  "extends": "@vercel/style-guide/typescript.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "incremental": true,
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    // Node 16 has 100% ES2021 support (https://node.green/#ES2021)
+    "target": "ES2021"
+  },
+  "exclude": ["node_modules", "dist"]
+}

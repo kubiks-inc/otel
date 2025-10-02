@@ -1,0 +1,49 @@
+{
+  "pipeline": {
+    "//#prettier-script": {
+      "outputs": ["node_modules/.cache/prettier/.prettier-cache"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "dist-site/**"]
+    },
+    "conformance": {
+      "dependsOn": ["^build"]
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "dev-turbo": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "dev-webpack": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "eslint": {
+      "dependsOn": ["^build"]
+    },
+    "lint-copy": {
+      "inputs": ["**/*.{md,mdx}"]
+    },
+    "build-release-packages": {
+      "dependsOn": ["@kubiks/otel-drizzle"]
+    },
+    "root-conformance": {},
+    "//#root-conformance": {},
+    "type-check": {
+      "dependsOn": ["^build"],
+      "outputs": ["**/node_modules/.cache/tsbuildinfo.json"]
+    },
+    "e2e-test": {
+      "dependsOn": ["^build"],
+      "inputs": ["**/*.{js,jsx,ts,tsx}"]
+    },
+    "unit-test": {
+      "dependsOn": ["^build"],
+      "inputs": ["**/*.{js,jsx,ts,tsx}"]
+    }
+  }
+}

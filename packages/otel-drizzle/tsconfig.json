@@ -1,0 +1,10 @@
+{
+  "extends": "typescript-config/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "lib": ["esnext"],
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo.json"
+  },
+  "exclude": ["node_modules", "dist"]
+}

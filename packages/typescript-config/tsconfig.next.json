@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.base",
+  "compilerOptions": {
+    // Required by Next.js
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "plugins": [
+      // Provides IDE-only errors and autocompletion.
+      {
+        "name": "typescript-plugin-css-modules",
+        "options": {
+          "goToDefinition": true
+        }
+      },
+      { "name": "next" }
+    ]
+  }
+}

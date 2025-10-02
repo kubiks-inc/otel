@@ -1,0 +1,33 @@
+{
+  "name": "eslint-config",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared ESLint configs for this monorepo",
+  "type": "commonjs",
+  "main": "index.js",
+  "bin": {
+    "eslint": "./node_modules/eslint/bin/eslint.js",
+    "eslint-runner": "./runner/eslint.mjs"
+  },
+  "scripts": {
+    "eslint": "node ./runner/eslint.mjs",
+    "eslint-fix": "node ./runner/eslint.mjs --fix",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@next/eslint-plugin-next": "14.1.1-canary.65",
+    "@types/eslint": "^8.4.6",
+    "@vercel/style-guide": "4.0.2",
+    "chalk": "^5.1.2",
+    "eslint": "8.40.0",
+    "eslint-plugin-mdx": "^2.0.5",
+    "globby": "^13.1.2",
+    "hook-std": "^3.0.0",
+    "log-update": "^5.0.1",
+    "typescript": "^5",
+    "typescript-config": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0"
+  }
+}
