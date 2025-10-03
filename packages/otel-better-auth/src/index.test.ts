@@ -116,6 +116,50 @@ describe("otel-better-auth", () => {
       expect(second.api.getSession).toBe(originalGetSession);
     });
 
+    it("should inject otel plugin when not already present", () => {
+      const mockServer = {
+        handler: vi.fn().mockResolvedValue(new Response()),
+        api: {
+          getSession: vi
+            .fn()
+            .mockResolvedValue({ user: { id: "123" }, session: { id: "456" } }),
+        },
+        options: {},
+      };
+
+      instrumentBetterAuth(mockServer as any);
+
+      const plugins = (mockServer as any).options?.plugins as
+        | ReturnType<typeof otelPlugin>[]
+        | undefined;
+      expect(Array.isArray(plugins)).toBe(true);
+      expect(plugins?.some((plugin) => plugin.id === "otel")).toBe(true);
+    });
+
+    it("should not duplicate otel plugin if already provided", () => {
+      const existingPlugin = otelPlugin();
+      const mockServer = {
+        handler: vi.fn().mockResolvedValue(new Response()),
+        api: {
+          getSession: vi
+            .fn()
+            .mockResolvedValue({ user: { id: "123" }, session: { id: "456" } }),
+        },
+        options: {
+          plugins: [existingPlugin],
+        },
+      };
+
+      instrumentBetterAuth(mockServer as any);
+
+      const plugins = ((mockServer as any).options?.plugins ?? []) as ReturnType<
+        typeof otelPlugin
+      >[];
+      const otelPlugins = plugins.filter((plugin) => plugin.id === "otel");
+      expect(otelPlugins).toHaveLength(1);
+      expect(otelPlugins[0]).toBe(existingPlugin);
+    });
+
     it("should accept custom tracer name", () => {
       const mockServer = {
         handler: vi.fn().mockResolvedValue(new Response()),

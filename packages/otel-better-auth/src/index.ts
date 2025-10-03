@@ -6,7 +6,7 @@ import {
   type Span,
   type Tracer,
 } from "@opentelemetry/api";
-import type { Auth, BetterAuthPlugin } from "better-auth";
+import type { Auth, BetterAuthPlugin, betterAuth } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 
 const DEFAULT_TRACER_NAME = "@kubiks/otel-better-auth";
@@ -43,6 +43,16 @@ export interface InstrumentBetterAuthConfig {
 interface InstrumentedAuth {
   [INSTRUMENTED_FLAG]?: true;
 }
+
+type BetterAuthInstance = ReturnType<typeof betterAuth>;
+type BetterAuthInstanceOptions = BetterAuthInstance["options"];
+
+type AuthWithOptions<Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions> =
+  Omit<Auth<Options>, "options"> & {
+    options: Options & {
+      plugins?: BetterAuthPlugin[] | Iterable<BetterAuthPlugin>;
+    };
+  };
 
 /**
  * Finalizes a span with status, timing, and optional error.
@@ -226,6 +236,36 @@ function instrumentServer<O extends Record<string, any> = any>(
   return server;
 }
 
+function ensureOtelPlugin<Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions>(
+  auth: Auth<Options>,
+  config: InstrumentBetterAuthConfig & { tracer: Tracer },
+): void {
+  const authWithOptions = auth as AuthWithOptions<Options>;
+  const options = authWithOptions.options;
+  const existingPlugins = options.plugins;
+  const pluginsArray = Array.isArray(existingPlugins)
+    ? existingPlugins
+    : existingPlugins && typeof (existingPlugins as any)[Symbol.iterator] === "function"
+      ? Array.from(existingPlugins as Iterable<BetterAuthPlugin>)
+      : [];
+
+  const hasOtelPlugin = pluginsArray.some(
+    (plugin) => plugin && typeof plugin === "object" && plugin.id === "otel",
+  );
+
+  if (hasOtelPlugin) {
+    // Preserve existing plugin configuration if users provided it themselves
+    options.plugins = pluginsArray;
+    return;
+  }
+
+  const pluginInstance = otelPlugin({
+    tracerName: config.tracerName ?? DEFAULT_TRACER_NAME,
+    tracer: config.tracer,
+  });
+  options.plugins = [...pluginsArray, pluginInstance];
+}
+
 /**
  * Instruments a Better Auth server instance with OpenTelemetry tracing.
  *
@@ -255,15 +295,17 @@ function instrumentServer<O extends Record<string, any> = any>(
  * await auth.api.getSession({ headers });
  * ```
  */
-export function instrumentBetterAuth<O extends Record<string, any> = any>(
-  auth: Auth<O>,
+export function instrumentBetterAuth<
+  Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions,
+>(
+  auth: Auth<Options>,
   config?: InstrumentBetterAuthConfig,
-): Auth<O> {
+): Auth<Options> {
   if (!auth || typeof auth !== "object") {
     return auth;
   }
 
-  if ((auth as Auth<O> & InstrumentedAuth)[INSTRUMENTED_FLAG]) {
+  if ((auth as Auth<Options> & InstrumentedAuth)[INSTRUMENTED_FLAG]) {
     return auth;
   }
 
@@ -272,9 +314,10 @@ export function instrumentBetterAuth<O extends Record<string, any> = any>(
 
   const tracer = customTracer ?? trace.getTracer(tracerName);
 
+  ensureOtelPlugin(auth, { tracerName, tracer });
   instrumentServer(auth, tracer);
 
-  (auth as Auth<O> & InstrumentedAuth)[INSTRUMENTED_FLAG] = true;
+  (auth as Auth<Options> & InstrumentedAuth)[INSTRUMENTED_FLAG] = true;
 
   return auth;
 }
