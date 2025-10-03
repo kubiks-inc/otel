@@ -56,19 +56,23 @@ type AuthWithOptions<
 };
 
 /**
- * Finalizes a span with status, timing, and optional error.
+ * Ends a span with an error status and exception recording.
  */
-function finalizeSpan(span: Span, error?: unknown): void {
-  if (error) {
-    if (error instanceof Error) {
-      span.recordException(error);
-    } else {
-      span.recordException(new Error(String(error)));
-    }
-    span.setStatus({ code: SpanStatusCode.ERROR });
+function endSpanWithError(span: Span, error: unknown): void {
+  if (error instanceof Error) {
+    span.recordException(error);
   } else {
-    span.setStatus({ code: SpanStatusCode.OK });
+    span.recordException(new Error(String(error)));
   }
+  span.setStatus({ code: SpanStatusCode.ERROR });
+  span.end();
+}
+
+/**
+ * Ends a span with a success status.
+ */
+function endSpanWithSuccess(span: Span): void {
+  span.setStatus({ code: SpanStatusCode.OK });
   span.end();
 }
 
@@ -119,6 +123,8 @@ function wrapAuthMethod<T extends (...args: any[]) => Promise<any>>(
                 result.error.message || "Unknown error",
               );
               span.setStatus({ code: SpanStatusCode.ERROR });
+              span.end();
+              return result;
             }
           } else {
             // Handle direct response format (Better Auth API)
@@ -134,11 +140,11 @@ function wrapAuthMethod<T extends (...args: any[]) => Promise<any>>(
           }
         }
 
-        finalizeSpan(span);
+        endSpanWithSuccess(span);
         return result;
       } catch (error) {
         span.setAttribute(SEMATTRS_AUTH_SUCCESS, false);
-        finalizeSpan(span, error);
+        endSpanWithError(span, error);
         throw error;
       }
     });
