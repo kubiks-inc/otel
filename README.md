@@ -1,4 +1,4 @@
-# OpenTelemetry for Next.js ecosystem
+# OpenTelemetry for TypeScript ecosystem
 
 The released packages:
 
