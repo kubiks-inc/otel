@@ -18,6 +18,18 @@ yarn add @kubiks/otel-drizzle
 
 **Peer Dependencies:** `@opentelemetry/api` >= 1.9.0, `drizzle-orm` >= 0.28.0
 
+## Supported Frameworks
+
+Works with any Node.js framework or runtime:
+
+- ✅ Next.js
+- ✅ Express
+- ✅ Fastify
+- ✅ NestJS
+- ✅ Hono
+- ✅ Standalone Node.js scripts
+- ✅ Any other Node.js application
+
 ## Usage
 
 Simply wrap your database connection pool with `instrumentDrizzle()` before passing it to Drizzle:
@@ -50,7 +62,9 @@ const instrumentedPool = instrumentDrizzle(pool, {
 const db = drizzle(instrumentedPool);
 ```
 
-### Works with Any Database
+### Works with All Drizzle-Supported Databases
+
+This package supports **all databases that Drizzle ORM supports**, including PostgreSQL, MySQL, SQLite, Turso, Neon, PlanetScale, and more.
 
 ```typescript
 // PostgreSQL with node-postgres
