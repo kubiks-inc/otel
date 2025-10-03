@@ -104,8 +104,6 @@ instrumentBetterAuth(authClient, {
 
 ## Examples
 
-### Basic Instrumentation (Auto Plugin)
-
 ```typescript
 // lib/auth.ts
 import { betterAuth } from "better-auth";
