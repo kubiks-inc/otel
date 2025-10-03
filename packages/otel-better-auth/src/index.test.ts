@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   instrumentBetterAuth,
+  otelPlugin,
   SEMATTRS_AUTH_OPERATION,
   SEMATTRS_AUTH_METHOD,
   SEMATTRS_AUTH_PROVIDER,
@@ -10,185 +11,14 @@ import {
   SEMATTRS_AUTH_SUCCESS,
   SEMATTRS_AUTH_ERROR,
 } from "./index.js";
-import { trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 
 describe("otel-better-auth", () => {
-  describe("instrumentBetterAuth - Client", () => {
-    it("should return the client unchanged if not an object", () => {
+  describe("instrumentBetterAuth", () => {
+    it("should return unchanged if not an object", () => {
       expect(instrumentBetterAuth(null as any)).toBe(null);
       expect(instrumentBetterAuth(undefined as any)).toBe(undefined);
     });
 
-    it("should mark client as instrumented", () => {
-      const mockClient = {
-        getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
-      };
-
-      const instrumented = instrumentBetterAuth(mockClient);
-      expect(instrumented).toBe(mockClient);
-      expect((instrumented as any).__kubiksOtelBetterAuthInstrumented).toBe(
-        true,
-      );
-    });
-
-    it("should not instrument the same client twice", () => {
-      const mockClient = {
-        getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
-      };
-
-      const first = instrumentBetterAuth(mockClient);
-      const originalGetSession = first.getSession;
-
-      const second = instrumentBetterAuth(first);
-      expect(second.getSession).toBe(originalGetSession);
-    });
-
-    it("should wrap getSession method", () => {
-      const mockGetSession = vi
-        .fn()
-        .mockResolvedValue({ data: { user: { id: "123" } }, error: null });
-      const mockClient = {
-        getSession: mockGetSession,
-      };
-
-      instrumentBetterAuth(mockClient);
-
-      expect(mockClient.getSession).not.toBe(mockGetSession);
-      expect(typeof mockClient.getSession).toBe("function");
-    });
-
-    it("should wrap signOut method", () => {
-      const mockSignOut = vi.fn().mockResolvedValue({ data: {}, error: null });
-      const mockClient = {
-        signOut: mockSignOut,
-      };
-
-      instrumentBetterAuth(mockClient);
-
-      expect(mockClient.signOut).not.toBe(mockSignOut);
-      expect(typeof mockClient.signOut).toBe("function");
-    });
-
-    it("should wrap signIn.email method", () => {
-      const mockSignInEmail = vi
-        .fn()
-        .mockResolvedValue({ data: { user: { id: "123" } }, error: null });
-      const mockClient = {
-        signIn: {
-          email: mockSignInEmail,
-        },
-      };
-
-      instrumentBetterAuth(mockClient);
-
-      expect(mockClient.signIn.email).not.toBe(mockSignInEmail);
-      expect(typeof mockClient.signIn.email).toBe("function");
-    });
-
-    it("should wrap signUp.email method", () => {
-      const mockSignUpEmail = vi
-        .fn()
-        .mockResolvedValue({ data: { user: { id: "123" } }, error: null });
-      const mockClient = {
-        signUp: {
-          email: mockSignUpEmail,
-        },
-      };
-
-      instrumentBetterAuth(mockClient);
-
-      expect(mockClient.signUp.email).not.toBe(mockSignUpEmail);
-      expect(typeof mockClient.signUp.email).toBe("function");
-    });
-
-    it("should call original method with correct arguments", async () => {
-      const mockGetSession = vi
-        .fn()
-        .mockResolvedValue({ data: { user: { id: "123" } }, error: null });
-      const mockClient = {
-        getSession: mockGetSession,
-      };
-
-      instrumentBetterAuth(mockClient);
-      await mockClient.getSession({ query: "test" });
-
-      expect(mockGetSession).toHaveBeenCalledWith({ query: "test" });
-    });
-
-    it("should preserve method context (this binding)", async () => {
-      let capturedThis: any;
-      const mockClient = {
-        value: "test",
-        getSession: async function (this: any) {
-          capturedThis = this;
-          return { data: null, error: null };
-        },
-      };
-
-      instrumentBetterAuth(mockClient);
-      await mockClient.getSession();
-
-      expect(capturedThis).toBe(mockClient);
-    });
-
-    it("should handle errors properly", async () => {
-      const error = new Error("Auth failed");
-      const mockGetSession = vi.fn().mockRejectedValue(error);
-      const mockClient = {
-        getSession: mockGetSession,
-      };
-
-      instrumentBetterAuth(mockClient);
-
-      await expect(mockClient.getSession()).rejects.toThrow("Auth failed");
-    });
-
-    it("should accept custom tracer name", () => {
-      const mockClient = {
-        getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
-      };
-
-      const instrumented = instrumentBetterAuth(mockClient, {
-        tracerName: "custom-tracer",
-      });
-
-      expect((instrumented as any).__kubiksOtelBetterAuthInstrumented).toBe(
-        true,
-      );
-    });
-
-    it("should accept custom tracer instance", () => {
-      const mockTracer = {
-        startSpan: vi.fn(),
-      };
-      const mockClient = {
-        getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
-      };
-
-      const instrumented = instrumentBetterAuth(mockClient, {
-        tracer: mockTracer as any,
-      });
-
-      expect((instrumented as any).__kubiksOtelBetterAuthInstrumented).toBe(
-        true,
-      );
-    });
-  });
-
-  describe("Semantic conventions", () => {
-    it("should export correct attribute constants", () => {
-      expect(SEMATTRS_AUTH_OPERATION).toBe("auth.operation");
-      expect(SEMATTRS_AUTH_METHOD).toBe("auth.method");
-      expect(SEMATTRS_AUTH_PROVIDER).toBe("auth.provider");
-      expect(SEMATTRS_USER_ID).toBe("user.id");
-      expect(SEMATTRS_USER_EMAIL).toBe("user.email");
-      expect(SEMATTRS_SESSION_ID).toBe("session.id");
-      expect(SEMATTRS_AUTH_SUCCESS).toBe("auth.success");
-      expect(SEMATTRS_AUTH_ERROR).toBe("auth.error");
-    });
-  });
-
-  describe("instrumentBetterAuth - Server", () => {
     it("should instrument server instance with api methods", () => {
       const mockServer = {
         handler: vi.fn().mockResolvedValue(new Response()),
@@ -284,6 +114,91 @@ describe("otel-better-auth", () => {
 
       const second = instrumentBetterAuth(first as any);
       expect(second.api.getSession).toBe(originalGetSession);
+    });
+
+    it("should accept custom tracer name", () => {
+      const mockServer = {
+        handler: vi.fn().mockResolvedValue(new Response()),
+        api: {
+          getSession: vi
+            .fn()
+            .mockResolvedValue({ user: { id: "123" }, session: { id: "456" } }),
+        },
+        options: {},
+      };
+
+      const instrumented = instrumentBetterAuth(mockServer as any, {
+        tracerName: "custom-tracer",
+      });
+
+      expect((instrumented as any).__kubiksOtelBetterAuthInstrumented).toBe(
+        true,
+      );
+    });
+
+    it("should accept custom tracer instance", () => {
+      const mockTracer = {
+        startSpan: vi.fn(),
+      };
+      const mockServer = {
+        handler: vi.fn().mockResolvedValue(new Response()),
+        api: {
+          getSession: vi
+            .fn()
+            .mockResolvedValue({ user: { id: "123" }, session: { id: "456" } }),
+        },
+        options: {},
+      };
+
+      const instrumented = instrumentBetterAuth(mockServer as any, {
+        tracer: mockTracer as any,
+      });
+
+      expect((instrumented as any).__kubiksOtelBetterAuthInstrumented).toBe(
+        true,
+      );
+    });
+  });
+
+  describe("otelPlugin", () => {
+    it("should create a plugin with correct id", () => {
+      const plugin = otelPlugin();
+      expect(plugin.id).toBe("otel");
+    });
+
+    it("should have onRequest handler", () => {
+      const plugin = otelPlugin();
+      expect(plugin.onRequest).toBeDefined();
+      expect(typeof plugin.onRequest).toBe("function");
+    });
+
+    it("should have onResponse handler", () => {
+      const plugin = otelPlugin();
+      expect(plugin.onResponse).toBeDefined();
+      expect(typeof plugin.onResponse).toBe("function");
+    });
+
+    it("should accept custom tracer name", () => {
+      const plugin = otelPlugin({ tracerName: "custom-tracer" });
+      expect(plugin.id).toBe("otel");
+    });
+
+    it("should accept custom tracer instance", () => {
+      const plugin = otelPlugin({ tracer: {} as any });
+      expect(plugin.id).toBe("otel");
+    });
+  });
+
+  describe("Semantic conventions", () => {
+    it("should export correct attribute constants", () => {
+      expect(SEMATTRS_AUTH_OPERATION).toBe("auth.operation");
+      expect(SEMATTRS_AUTH_METHOD).toBe("auth.method");
+      expect(SEMATTRS_AUTH_PROVIDER).toBe("auth.provider");
+      expect(SEMATTRS_USER_ID).toBe("user.id");
+      expect(SEMATTRS_USER_EMAIL).toBe("user.email");
+      expect(SEMATTRS_SESSION_ID).toBe("session.id");
+      expect(SEMATTRS_AUTH_SUCCESS).toBe("auth.success");
+      expect(SEMATTRS_AUTH_ERROR).toBe("auth.error");
     });
   });
 
