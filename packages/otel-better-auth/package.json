@@ -29,9 +29,7 @@
     "node": "^18.19.0 || >=20.6.0"
   },
   "scripts": {
-    "build": "pnpm clean && pnpm build-only && pnpm build-types",
-    "build-only": "pnpm tsx build.ts",
-    "build-types": "tsc --skipLibCheck --noEmit false --declaration --emitDeclarationOnly --stripInternal --declarationDir dist/types src/index.ts",
+    "build": "pnpm clean && tsc",
     "clean": "rimraf dist",
     "prepublishOnly": "pnpm build",
     "type-check": "tsc --noEmit",
@@ -45,9 +43,7 @@
     "@opentelemetry/sdk-trace-node": "^1.28.0",
     "@types/node": "18.15.11",
     "better-auth": "^1.0.0",
-    "esbuild": "^0.19.4",
     "rimraf": "3.0.2",
-    "tsx": "^4.6.2",
     "typescript": "^5",
     "vitest": "0.33.0"
   },
