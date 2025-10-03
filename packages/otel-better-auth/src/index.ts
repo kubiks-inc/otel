@@ -7,6 +7,7 @@ import {
   type Tracer,
 } from "@opentelemetry/api";
 import type { Auth, BetterAuthPlugin } from "better-auth";
+import { createAuthMiddleware } from "better-auth/api";
 
 const DEFAULT_TRACER_NAME = "@kubiks/otel-better-auth";
 const INSTRUMENTED_FLAG = "__kubiksOtelBetterAuthInstrumented" as const;
@@ -313,7 +314,41 @@ export function otelPlugin(config?: InstrumentBetterAuthConfig): BetterAuthPlugi
   return {
     id: "otel",
 
-    onRequest: async (request) => {
+    hooks: {
+      after: [
+        {
+          matcher: () => true, // Match all endpoints
+          handler: createAuthMiddleware(async (ctx) => {
+            try {
+              const path = ctx.path;
+              
+              // Get the span we created in onRequest
+              const spanKey = `${ctx.request?.method || "GET"}:${ctx.request?.url}`;
+              const span = requestSpans.get(spanKey);
+              
+              if (span && ctx.context.newSession) {
+                // Extract user and session data from newSession
+                const { user, session } = ctx.context.newSession;
+                
+                if (user?.id) {
+                  span.setAttribute(SEMATTRS_USER_ID, user.id);
+                }
+                if (user?.email) {
+                  span.setAttribute(SEMATTRS_USER_EMAIL, user.email);
+                }
+                if (session?.id) {
+                  span.setAttribute(SEMATTRS_SESSION_ID, session.id);
+                }
+              }
+            } catch (error) {
+              console.error("[otel-better-auth] after hook error:", error);
+            }
+          }),
+        },
+      ],
+    },
+
+    onRequest: async (request, ctx) => {
       try {
         const url = new URL(request.url);
         const path = url.pathname;
@@ -381,7 +416,7 @@ export function otelPlugin(config?: InstrumentBetterAuthConfig): BetterAuthPlugi
       }
     },
 
-    onResponse: async (response) => {
+    onResponse: async (response, ctx) => {
       try {
         const url = response.url;
         if (!url) return;
@@ -398,25 +433,8 @@ export function otelPlugin(config?: InstrumentBetterAuthConfig): BetterAuthPlugi
           const success = response.status >= 200 && response.status < 400;
           span.setAttribute(SEMATTRS_AUTH_SUCCESS, success);
 
-          // Try to extract user and session info from response
-          if (success) {
-            try {
-              const clonedResponse = response.clone();
-              const body = await clonedResponse.json();
-
-              if (body?.user?.id) {
-                span.setAttribute(SEMATTRS_USER_ID, body.user.id);
-              }
-              if (body?.user?.email) {
-                span.setAttribute(SEMATTRS_USER_EMAIL, body.user.email);
-              }
-              if (body?.session?.id) {
-                span.setAttribute(SEMATTRS_SESSION_ID, body.session.id);
-              }
-            } catch (parseError) {
-              // Silently fail if we can't parse the response
-            }
-          }
+          // Note: User/session data is extracted in the after hook via ctx.context.newSession
+          // This ensures we capture data even for redirect responses (OAuth callbacks)
 
           if (success) {
             span.setStatus({ code: SpanStatusCode.OK });
