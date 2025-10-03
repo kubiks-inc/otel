@@ -10,7 +10,7 @@ npm install @kubiks/otel-better-auth
 pnpm add @kubiks/otel-better-auth
 ```
 
-**Peer Dependencies:** `@opentelemetry/api` >= 1.9.0, `better-auth` >= 0.1.0
+**Peer Dependencies:** `@opentelemetry/api` >= 1.9.0, `better-auth` >= 1.0.0
 
 ## Usage
 

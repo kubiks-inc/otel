@@ -29,12 +29,14 @@ Initial release of @kubiks/otel-better-auth
 
 ```typescript
 import { betterAuth } from "better-auth";
-import { otelPlugin } from "@kubiks/otel-better-auth";
+import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 
-export const auth = betterAuth({
-  database: db,
-  emailAndPassword: { enabled: true },
-}).use(otelPlugin());
+export const auth = instrumentBetterAuth(
+  betterAuth({
+    database: db,
+    // ... your Better Auth config
+  }),
+);
 ```
 
 That's it! All your authentication operations are now traced with OpenTelemetry.
