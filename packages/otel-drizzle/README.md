@@ -22,11 +22,23 @@ yarn add @kubiks/otel-drizzle
 
 Works with any TypeScript/JavaScript framework and Node.js runtime that Drizzle supports including:
 
-- ✅ Next.js
-- ✅ Fastify
-- ✅ NestJS
-- ✅ Nuxt
-- ✅ And many more...
+- Next.js
+- Fastify
+- NestJS
+- Nuxt
+- And many more...
+
+## Supported Platforms
+
+Works with any observability platform that supports OpenTelemetry including:
+
+- [Kubiks](https://kubiks.ai)
+- [Sentry](https://sentry.io)
+- [Axiom](https://axiom.co)
+- [Datadog](https://www.datadoghq.com)
+- [New Relic](https://newrelic.com)
+- [SigNoz](https://signoz.io)
+- And others ...
 
 ## Usage
 
