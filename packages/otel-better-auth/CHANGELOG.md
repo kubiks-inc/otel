@@ -1,5 +1,11 @@
 # @kubiks/otel-better-auth
 
+## 2.0.1
+
+### Patch Changes
+
+- [`bdc94d3`](https://github.com/kubiks-inc/otel/commit/bdc94d37356623b8e3d9433e5fb2d9f8285a16ce) Thanks [@alex-holovach](https://github.com/alex-holovach)! - update README
+
 ## 2.0.0
 
 ### Major Changes
