@@ -20,15 +20,13 @@ yarn add @kubiks/otel-drizzle
 
 ## Supported Frameworks
 
-Works with any Node.js framework or runtime:
+Works with any TypeScript/JavaScript framework and Node.js runtime that Drizzle supports including:
 
 - ✅ Next.js
-- ✅ Express
 - ✅ Fastify
 - ✅ NestJS
-- ✅ Hono
-- ✅ Standalone Node.js scripts
-- ✅ Any other Node.js application
+- ✅ Nuxt
+- ✅ And many more...
 
 ## Usage
 
