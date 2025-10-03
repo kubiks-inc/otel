@@ -47,12 +47,13 @@ interface InstrumentedAuth {
 type BetterAuthInstance = ReturnType<typeof betterAuth>;
 type BetterAuthInstanceOptions = BetterAuthInstance["options"];
 
-type AuthWithOptions<Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions> =
-  Omit<Auth<Options>, "options"> & {
-    options: Options & {
-      plugins?: BetterAuthPlugin[] | Iterable<BetterAuthPlugin>;
-    };
+type AuthWithOptions<
+  Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions,
+> = Omit<Auth<Options>, "options"> & {
+  options: Options & {
+    plugins?: BetterAuthPlugin[] | Iterable<BetterAuthPlugin>;
   };
+};
 
 /**
  * Finalizes a span with status, timing, and optional error.
@@ -80,7 +81,7 @@ function wrapAuthMethod<T extends (...args: any[]) => Promise<any>>(
   attributes: Record<string, string>,
   tracer: Tracer,
 ): T {
-  return (async function instrumented(
+  return async function instrumented(
     this: any,
     ...args: Parameters<T>
   ): Promise<any> {
@@ -141,9 +142,8 @@ function wrapAuthMethod<T extends (...args: any[]) => Promise<any>>(
         throw error;
       }
     });
-  }) as T;
+  } as T;
 }
-
 
 /**
  * Maps API method names to their operation metadata.
@@ -236,7 +236,9 @@ function instrumentServer<O extends Record<string, any> = any>(
   return server;
 }
 
-function ensureOtelPlugin<Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions>(
+function ensureOtelPlugin<
+  Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions,
+>(
   auth: Auth<Options>,
   config: InstrumentBetterAuthConfig & { tracer: Tracer },
 ): void {
@@ -245,7 +247,8 @@ function ensureOtelPlugin<Options extends BetterAuthInstanceOptions = BetterAuth
   const existingPlugins = options.plugins;
   const pluginsArray = Array.isArray(existingPlugins)
     ? existingPlugins
-    : existingPlugins && typeof (existingPlugins as any)[Symbol.iterator] === "function"
+    : existingPlugins &&
+        typeof (existingPlugins as any)[Symbol.iterator] === "function"
       ? Array.from(existingPlugins as Iterable<BetterAuthPlugin>)
       : [];
 
@@ -296,10 +299,7 @@ function ensureOtelPlugin<Options extends BetterAuthInstanceOptions = BetterAuth
  */
 export function instrumentBetterAuth<
   Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions,
->(
-  auth: Auth<Options>,
-  config?: InstrumentBetterAuthConfig,
-): Auth<Options> {
+>(auth: Auth<Options>, config?: InstrumentBetterAuthConfig): Auth<Options> {
   if (!auth || typeof auth !== "object") {
     return auth;
   }
@@ -345,11 +345,11 @@ export function instrumentBetterAuth<
  * });
  * ```
  */
-export function otelPlugin(config?: InstrumentBetterAuthConfig): BetterAuthPlugin {
-  const {
-    tracerName = DEFAULT_TRACER_NAME,
-    tracer: customTracer,
-  } = config ?? {};
+export function otelPlugin(
+  config?: InstrumentBetterAuthConfig,
+): BetterAuthPlugin {
+  const { tracerName = DEFAULT_TRACER_NAME, tracer: customTracer } =
+    config ?? {};
 
   const tracer = customTracer ?? trace.getTracer(tracerName);
 
@@ -363,15 +363,16 @@ export function otelPlugin(config?: InstrumentBetterAuthConfig): BetterAuthPlugi
           handler: createAuthMiddleware(async (ctx) => {
             try {
               const path = ctx.path;
-              
+
               // Get the span we created in onRequest
-              const spanKey = `${ctx.request?.method || "GET"}:${ctx.request?.url}`;
+              const spanKey = `${ctx.request?.method || "GET"}:${ctx.request
+                ?.url}`;
               const span = requestSpans.get(spanKey);
-              
+
               if (span && ctx.context.newSession) {
                 // Extract user and session data from newSession
                 const { user, session } = ctx.context.newSession;
-                
+
                 if (user?.id) {
                   span.setAttribute(SEMATTRS_USER_ID, user.id);
                 }
@@ -408,7 +409,10 @@ export function otelPlugin(config?: InstrumentBetterAuthConfig): BetterAuthPlugi
           attributes[SEMATTRS_AUTH_OPERATION] = "signin";
           attributes[SEMATTRS_AUTH_METHOD] = "email";
         } else if (path.includes("/callback/")) {
-          const provider = path.split("/callback/")[1]?.split("/")[0]?.split("?")[0];
+          const provider = path
+            .split("/callback/")[1]
+            ?.split("/")[0]
+            ?.split("?")[0];
           if (provider) {
             spanName = `auth.http.oauth.callback.${provider}`;
             attributes[SEMATTRS_AUTH_OPERATION] = "oauth_callback";
@@ -430,7 +434,10 @@ export function otelPlugin(config?: InstrumentBetterAuthConfig): BetterAuthPlugi
         } else if (path.endsWith("/get-session")) {
           spanName = "auth.http.get_session";
           attributes[SEMATTRS_AUTH_OPERATION] = "get_session";
-        } else if (path.includes("/sign-in/") && !path.endsWith("/sign-in/email")) {
+        } else if (
+          path.includes("/sign-in/") &&
+          !path.endsWith("/sign-in/email")
+        ) {
           // OAuth initiation
           const pathParts = path.split("/sign-in/");
           const provider = pathParts[1]?.split("/")[0]?.split("?")[0];
@@ -494,6 +501,3 @@ export function otelPlugin(config?: InstrumentBetterAuthConfig): BetterAuthPlugi
     },
   };
 }
-
-// Re-export for convenience
-export { instrumentBetterAuth as default, otelPlugin as plugin };
