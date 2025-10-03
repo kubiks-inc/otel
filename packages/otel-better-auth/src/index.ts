@@ -6,9 +6,11 @@ import {
   type Span,
   type Tracer,
 } from "@opentelemetry/api";
-import type { BetterAuthPlugin } from "better-auth/plugins";
+import type { createAuthClient } from "better-auth/client";
+import type { Auth } from "better-auth";
 
 const DEFAULT_TRACER_NAME = "@kubiks/otel-better-auth";
+const INSTRUMENTED_FLAG = "__kubiksOtelBetterAuthInstrumented" as const;
 
 // Semantic conventions for auth attributes
 export const SEMATTRS_AUTH_OPERATION = "auth.operation";
@@ -23,7 +25,7 @@ export const SEMATTRS_AUTH_ERROR = "auth.error";
 /**
  * Configuration options for Better Auth OpenTelemetry instrumentation.
  */
-export interface OtelBetterAuthConfig {
+export interface InstrumentBetterAuthConfig {
   /**
    * Custom tracer name. Defaults to "@kubiks/otel-better-auth".
    */
@@ -35,155 +37,415 @@ export interface OtelBetterAuthConfig {
   tracer?: Tracer;
 }
 
-// Store spans per request
-const requestSpans = new Map<string, Span>();
+/**
+ * Type representing a Better Auth client instance.
+ */
+type BetterAuthClient = ReturnType<typeof createAuthClient>;
 
 /**
- * Creates a Better Auth plugin that adds OpenTelemetry tracing to all auth operations.
+ * Type representing a Better Auth server instance.
+ */
+type BetterAuthServer = Auth<any>;
+
+interface InstrumentedClient {
+  [INSTRUMENTED_FLAG]?: true;
+}
+
+/**
+ * Finalizes a span with status, timing, and optional error.
+ */
+function finalizeSpan(span: Span, error?: unknown): void {
+  if (error) {
+    if (error instanceof Error) {
+      span.recordException(error);
+    } else {
+      span.recordException(new Error(String(error)));
+    }
+    span.setStatus({ code: SpanStatusCode.ERROR });
+  } else {
+    span.setStatus({ code: SpanStatusCode.OK });
+  }
+  span.end();
+}
+
+/**
+ * Wraps an async function with OpenTelemetry tracing.
+ */
+function wrapAuthMethod<T extends (...args: any[]) => Promise<any>>(
+  originalFn: T,
+  spanName: string,
+  attributes: Record<string, string>,
+  tracer: Tracer,
+): T {
+  return (async function instrumented(
+    this: any,
+    ...args: Parameters<T>
+  ): Promise<any> {
+    const span = tracer.startSpan(spanName, {
+      kind: SpanKind.CLIENT,
+      attributes,
+    });
+    span.setAttribute(SEMATTRS_AUTH_SUCCESS, true);
+
+    const activeContext = trace.setSpan(context.active(), span);
+
+    return context.with(activeContext, async () => {
+      try {
+        const result = await originalFn.apply(this, args);
+
+        // Extract user and session info from successful results
+        if (result) {
+          if (result.data) {
+            // Handle Better Fetch response format { data, error }
+            if (result.data.user?.id) {
+              span.setAttribute(SEMATTRS_USER_ID, result.data.user.id);
+            }
+            if (result.data.user?.email) {
+              span.setAttribute(SEMATTRS_USER_EMAIL, result.data.user.email);
+            }
+            if (result.data.session?.id) {
+              span.setAttribute(SEMATTRS_SESSION_ID, result.data.session.id);
+            }
+
+            // Check for errors in the response
+            if (result.error) {
+              span.setAttribute(SEMATTRS_AUTH_SUCCESS, false);
+              span.setAttribute(
+                SEMATTRS_AUTH_ERROR,
+                result.error.message || "Unknown error",
+              );
+              span.setStatus({ code: SpanStatusCode.ERROR });
+            }
+          } else {
+            // Handle direct response format (server API)
+            if (result.user?.id) {
+              span.setAttribute(SEMATTRS_USER_ID, result.user.id);
+            }
+            if (result.user?.email) {
+              span.setAttribute(SEMATTRS_USER_EMAIL, result.user.email);
+            }
+            if (result.session?.id) {
+              span.setAttribute(SEMATTRS_SESSION_ID, result.session.id);
+            }
+          }
+        }
+
+        finalizeSpan(span);
+        return result;
+      } catch (error) {
+        span.setAttribute(SEMATTRS_AUTH_SUCCESS, false);
+        finalizeSpan(span, error);
+        throw error;
+      }
+    });
+  }) as T;
+}
+
+/**
+ * Checks if the given object is a Better Auth server instance.
+ */
+function isBetterAuthServer(
+  instance: any,
+): instance is BetterAuthServer {
+  return (
+    instance &&
+    typeof instance === "object" &&
+    typeof instance.handler === "function" &&
+    typeof instance.api === "object"
+  );
+}
+
+/**
+ * Checks if the given object is a Better Auth client instance.
+ */
+function isBetterAuthClient(
+  instance: any,
+): instance is BetterAuthClient {
+  return (
+    instance &&
+    typeof instance === "object" &&
+    !instance.handler && // Server has handler, client doesn't
+    (typeof instance.getSession === "function" ||
+      typeof instance.signOut === "function" ||
+      typeof instance.signIn === "object" ||
+      typeof instance.signUp === "object")
+  );
+}
+
+/**
+ * Instruments a Better Auth client with OpenTelemetry tracing.
+ */
+function instrumentClient<TClient extends BetterAuthClient>(
+  client: TClient,
+  tracer: Tracer,
+): TClient {
+  // Instrument getSession
+  if (typeof client.getSession === "function") {
+    const originalGetSession = client.getSession;
+    client.getSession = wrapAuthMethod(
+      originalGetSession,
+      "auth.get_session",
+      { [SEMATTRS_AUTH_OPERATION]: "get_session" },
+      tracer,
+    );
+  }
+
+  // Instrument signOut
+  if (typeof client.signOut === "function") {
+    const originalSignOut = client.signOut;
+    client.signOut = wrapAuthMethod(
+      originalSignOut,
+      "auth.signout",
+      { [SEMATTRS_AUTH_OPERATION]: "signout" },
+      tracer,
+    );
+  }
+
+  // Instrument signIn methods
+  if (client.signIn && typeof client.signIn === "object") {
+    if (typeof client.signIn.email === "function") {
+      const originalSignInEmail = client.signIn.email;
+      client.signIn.email = wrapAuthMethod(
+        originalSignInEmail,
+        "auth.signin.email",
+        {
+          [SEMATTRS_AUTH_OPERATION]: "signin",
+          [SEMATTRS_AUTH_METHOD]: "email",
+        },
+        tracer,
+      );
+    }
+
+    // Instrument OAuth sign-in methods
+    for (const [provider, method] of Object.entries(client.signIn)) {
+      if (
+        provider !== "email" &&
+        typeof method === "function" &&
+        !method.name.includes("bound instrumented")
+      ) {
+        client.signIn[provider] = wrapAuthMethod(
+          method,
+          `auth.signin.${provider}`,
+          {
+            [SEMATTRS_AUTH_OPERATION]: "signin",
+            [SEMATTRS_AUTH_METHOD]: "oauth",
+            [SEMATTRS_AUTH_PROVIDER]: provider,
+          },
+          tracer,
+        );
+      }
+    }
+  }
+
+  // Instrument signUp methods
+  if (client.signUp && typeof client.signUp === "object") {
+    if (typeof client.signUp.email === "function") {
+      const originalSignUpEmail = client.signUp.email;
+      client.signUp.email = wrapAuthMethod(
+        originalSignUpEmail,
+        "auth.signup.email",
+        {
+          [SEMATTRS_AUTH_OPERATION]: "signup",
+          [SEMATTRS_AUTH_METHOD]: "email",
+        },
+        tracer,
+      );
+    }
+
+    // Instrument OAuth sign-up methods (if any)
+    for (const [provider, method] of Object.entries(client.signUp)) {
+      if (
+        provider !== "email" &&
+        typeof method === "function" &&
+        !method.name.includes("bound instrumented")
+      ) {
+        client.signUp[provider] = wrapAuthMethod(
+          method,
+          `auth.signup.${provider}`,
+          {
+            [SEMATTRS_AUTH_OPERATION]: "signup",
+            [SEMATTRS_AUTH_METHOD]: "oauth",
+            [SEMATTRS_AUTH_PROVIDER]: provider,
+          },
+          tracer,
+        );
+      }
+    }
+  }
+
+  return client;
+}
+
+/**
+ * Instruments a Better Auth server instance with OpenTelemetry tracing.
+ */
+function instrumentServer<TServer extends BetterAuthServer>(
+  server: TServer,
+  tracer: Tracer,
+): TServer {
+  const api = server.api as any; // Cast to any to allow property assignment
+
+  // Instrument getSession API
+  if (typeof api.getSession === "function") {
+    const originalGetSession = api.getSession;
+    api.getSession = wrapAuthMethod(
+      originalGetSession,
+      "auth.api.get_session",
+      { [SEMATTRS_AUTH_OPERATION]: "get_session" },
+      tracer,
+    );
+  }
+
+  // Instrument signOut API
+  if (typeof api.signOut === "function") {
+    const originalSignOut = api.signOut;
+    api.signOut = wrapAuthMethod(
+      originalSignOut,
+      "auth.api.signout",
+      { [SEMATTRS_AUTH_OPERATION]: "signout" },
+      tracer,
+    );
+  }
+
+  // Instrument signInEmail API
+  if (typeof api.signInEmail === "function") {
+    const originalSignInEmail = api.signInEmail;
+    api.signInEmail = wrapAuthMethod(
+      originalSignInEmail,
+      "auth.api.signin.email",
+      {
+        [SEMATTRS_AUTH_OPERATION]: "signin",
+        [SEMATTRS_AUTH_METHOD]: "email",
+      },
+      tracer,
+    );
+  }
+
+  // Instrument signUpEmail API
+  if (typeof api.signUpEmail === "function") {
+    const originalSignUpEmail = api.signUpEmail;
+    api.signUpEmail = wrapAuthMethod(
+      originalSignUpEmail,
+      "auth.api.signup.email",
+      {
+        [SEMATTRS_AUTH_OPERATION]: "signup",
+        [SEMATTRS_AUTH_METHOD]: "email",
+      },
+      tracer,
+    );
+  }
+
+  // Instrument signInSocial API (OAuth)
+  if (typeof api.signInSocial === "function") {
+    const originalSignInSocial = api.signInSocial;
+    api.signInSocial = wrapAuthMethod(
+      originalSignInSocial,
+      "auth.api.signin.social",
+      {
+        [SEMATTRS_AUTH_OPERATION]: "signin",
+        [SEMATTRS_AUTH_METHOD]: "oauth",
+      },
+      tracer,
+    );
+  }
+
+  // Instrument callbackOAuth API
+  if (typeof api.callbackOAuth === "function") {
+    const originalCallbackOAuth = api.callbackOAuth;
+    api.callbackOAuth = wrapAuthMethod(
+      originalCallbackOAuth,
+      "auth.api.oauth.callback",
+      {
+        [SEMATTRS_AUTH_OPERATION]: "oauth_callback",
+        [SEMATTRS_AUTH_METHOD]: "oauth",
+      },
+      tracer,
+    );
+  }
+
+  return server;
+}
+
+/**
+ * Instruments a Better Auth instance (client or server) with OpenTelemetry tracing.
  *
+ * This function automatically detects whether you're instrumenting a client
+ * (from `createAuthClient`) or server (from `betterAuth`) instance and applies
+ * the appropriate instrumentation.
+ *
+ * For client instances, it wraps methods like `getSession`, `signIn.email`, etc.
+ * For server instances, it wraps API methods like `api.getSession`, `api.signInEmail`, etc.
+ *
+ * The instrumentation captures user IDs, session IDs, and auth status in span attributes.
+ * The instrumentation is idempotent - calling it multiple times on the same
+ * instance will only instrument it once.
+ *
+ * @typeParam T - The type of the Better Auth instance (client or server)
+ * @param instance - The Better Auth instance to instrument
  * @param config - Optional configuration for instrumentation behavior
- * @returns A Better Auth plugin that can be added via .use()
+ * @returns The instrumented instance (same instance, modified in place)
  *
  * @example
  * ```typescript
+ * // Server-side (Next.js, Express, etc.)
  * import { betterAuth } from "better-auth";
- * import { otelPlugin } from "@kubiks/otel-better-auth";
+ * import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
  *
- * export const auth = betterAuth({
+ * export const auth = instrumentBetterAuth(betterAuth({
  *   database: db,
- * }).use(otelPlugin());
+ *   // ... your config
+ * }));
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Client-side (React, Vue, etc.)
+ * import { createAuthClient } from "better-auth/client";
+ * import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
+ *
+ * const authClient = createAuthClient({
+ *   baseURL: process.env.BETTER_AUTH_URL,
+ * });
+ *
+ * instrumentBetterAuth(authClient);
+ *
+ * // Now all calls are traced
+ * await authClient.getSession();
+ * await authClient.signIn.email({ email, password });
  * ```
  */
-export function otelPlugin(config?: OtelBetterAuthConfig): BetterAuthPlugin {
-  const {
-    tracerName = DEFAULT_TRACER_NAME,
-    tracer: customTracer,
-  } = config ?? {};
+export function instrumentBetterAuth<
+  T extends BetterAuthClient | BetterAuthServer,
+>(instance: T, config?: InstrumentBetterAuthConfig): T {
+  if (!instance || typeof instance !== "object") {
+    return instance;
+  }
+
+  if ((instance as T & InstrumentedClient)[INSTRUMENTED_FLAG]) {
+    return instance;
+  }
+
+  const { tracerName = DEFAULT_TRACER_NAME, tracer: customTracer } =
+    config ?? {};
 
   const tracer = customTracer ?? trace.getTracer(tracerName);
 
-  return {
-    id: "otel",
-    
-    onRequest: async (request) => {
-      try {
-        const url = new URL(request.url);
-        const path = url.pathname;
+  // Detect instance type and apply appropriate instrumentation
+  if (isBetterAuthServer(instance)) {
+    instrumentServer(instance, tracer);
+  } else if (isBetterAuthClient(instance)) {
+    instrumentClient(instance, tracer);
+  } else {
+    console.warn(
+      "[otel-better-auth] Unable to detect Better Auth instance type. Skipping instrumentation.",
+    );
+    return instance;
+  }
 
-        let spanName: string | null = null;
-        const attributes: Record<string, string> = {};
+  (instance as T & InstrumentedClient)[INSTRUMENTED_FLAG] = true;
 
-        // Determine operation type from path
-        if (path.endsWith("/sign-up/email")) {
-          spanName = "auth.signup.email";
-          attributes[SEMATTRS_AUTH_OPERATION] = "signup";
-          attributes[SEMATTRS_AUTH_METHOD] = "password";
-        } else if (path.endsWith("/sign-in/email")) {
-          spanName = "auth.signin.email";
-          attributes[SEMATTRS_AUTH_OPERATION] = "signin";
-          attributes[SEMATTRS_AUTH_METHOD] = "password";
-        } else if (path.includes("/callback/")) {
-          const provider = path.split("/callback/")[1]?.split("/")[0]?.split("?")[0];
-          if (provider) {
-            spanName = `auth.oauth.${provider}`;
-            attributes[SEMATTRS_AUTH_OPERATION] = "oauth_callback";
-            attributes[SEMATTRS_AUTH_METHOD] = "oauth";
-            attributes[SEMATTRS_AUTH_PROVIDER] = provider;
-          }
-        } else if (path.endsWith("/forget-password")) {
-          spanName = "auth.forgot_password";
-          attributes[SEMATTRS_AUTH_OPERATION] = "forgot_password";
-        } else if (path.endsWith("/reset-password")) {
-          spanName = "auth.reset_password";
-          attributes[SEMATTRS_AUTH_OPERATION] = "reset_password";
-        } else if (path.endsWith("/verify-email")) {
-          spanName = "auth.verify_email";
-          attributes[SEMATTRS_AUTH_OPERATION] = "verify_email";
-        } else if (path.endsWith("/sign-out")) {
-          spanName = "auth.signout";
-          attributes[SEMATTRS_AUTH_OPERATION] = "signout";
-        } else if (path.endsWith("/get-session")) {
-          spanName = "auth.get_session";
-          attributes[SEMATTRS_AUTH_OPERATION] = "get_session";
-        } else if (path.includes("/sign-in/") && !path.endsWith("/sign-in/email")) {
-          // OAuth initiation
-          const pathParts = path.split("/sign-in/");
-          const provider = pathParts[1]?.split("/")[0]?.split("?")[0];
-          if (provider && provider !== "email") {
-            spanName = `auth.oauth.${provider}.initiate`;
-            attributes[SEMATTRS_AUTH_OPERATION] = "oauth_initiate";
-            attributes[SEMATTRS_AUTH_METHOD] = "oauth";
-            attributes[SEMATTRS_AUTH_PROVIDER] = provider;
-          }
-        }
-
-        if (spanName) {
-          const span = tracer.startSpan(spanName, {
-            kind: SpanKind.INTERNAL,
-            attributes,
-          });
-
-          const spanKey = `${request.method}:${request.url}`;
-          requestSpans.set(spanKey, span);
-
-          context.with(trace.setSpan(context.active(), span), () => {});
-        }
-      } catch (error) {
-        console.error("[otel-better-auth]", error);
-      }
-    },
-
-    onResponse: async (response) => {
-      try {
-        const url = response.url;
-        if (!url) return;
-        
-        let spanKey = `POST:${url}`;
-        let span = requestSpans.get(spanKey);
-        
-        if (!span) {
-          spanKey = `GET:${url}`;
-          span = requestSpans.get(spanKey);
-        }
-        
-        if (span) {
-          const success = response.status >= 200 && response.status < 400;
-          span.setAttribute(SEMATTRS_AUTH_SUCCESS, success);
-
-          // Extract userId and sessionId from response for get-session endpoint
-          if (success && url.includes("/get-session")) {
-            try {
-              // Clone the response to avoid consuming the body
-              const clonedResponse = response.clone();
-              const body = await clonedResponse.json();
-              
-              if (body?.user?.id) {
-                span.setAttribute(SEMATTRS_USER_ID, body.user.id);
-              }
-              if (body?.session?.id) {
-                span.setAttribute(SEMATTRS_SESSION_ID, body.session.id);
-              }
-            } catch (parseError) {
-              // Silently fail if we can't parse the response
-            }
-          }
-
-          if (success) {
-            span.setStatus({ code: SpanStatusCode.OK });
-          } else {
-            span.setStatus({ code: SpanStatusCode.ERROR });
-            span.setAttribute(SEMATTRS_AUTH_ERROR, `HTTP ${response.status}`);
-          }
-
-          span.end();
-          requestSpans.delete(spanKey);
-        }
-      } catch (error) {
-        console.error("[otel-better-auth]", error);
-      }
-    },
-  };
+  return instance;
 }
 
 // Re-export for convenience
-export { otelPlugin as default };
+export { instrumentBetterAuth as default };

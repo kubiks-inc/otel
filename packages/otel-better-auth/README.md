@@ -1,6 +1,6 @@
 # @kubiks/otel-better-auth
 
-OpenTelemetry instrumentation for [Better Auth](https://better-auth.com/). One-line setup for complete auth observability.
+OpenTelemetry instrumentation for [Better Auth](https://better-auth.com/). One-line setup for complete auth observability on both server and client.
 
 ## Installation
 
@@ -14,36 +14,57 @@ pnpm add @kubiks/otel-better-auth
 
 ## Usage
 
-Add the plugin to your Better Auth configuration:
+### Server-Side (Recommended)
+
+Wrap your Better Auth server instance to automatically trace all API calls:
 
 ```typescript
 import { betterAuth } from "better-auth";
-import { otelPlugin } from "@kubiks/otel-better-auth";
+import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 
-export const auth = betterAuth({
+export const auth = instrumentBetterAuth(betterAuth({
   database: db,
   // ... your config
-}).use(otelPlugin());
+}));
+```
+
+### Client-Side
+
+Wrap your Better Auth client to trace client operations:
+
+```typescript
+import { createAuthClient } from "better-auth/client";
+import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
+
+const authClient = createAuthClient({
+  baseURL: process.env.BETTER_AUTH_URL,
+});
+
+instrumentBetterAuth(authClient);
+
+// Now all calls are automatically traced
+await authClient.getSession();
+await authClient.signIn.email({ email, password });
 ```
 
 That's it! All auth operations are now traced automatically.
 
 ## What Gets Traced
 
-### Email/Password Auth
+### Server-Side API Methods
+- `auth.api.get_session` - Get current session
+- `auth.api.signin.email` - Email signin
+- `auth.api.signup.email` - Email signup
+- `auth.api.signin.social` - OAuth signin
+- `auth.api.oauth.callback` - OAuth callback
+- `auth.api.signout` - User signout
+
+### Client-Side Methods
+- `auth.get_session` - Get current session (includes `user.id` and `session.id` attributes)
 - `auth.signup.email` - User signup
 - `auth.signin.email` - User signin
-
-### OAuth
-- `auth.oauth.{provider}.initiate` - User clicks "Sign in with..."
-- `auth.oauth.{provider}` - OAuth callback processing
-
-### Password Management
-- `auth.forgot_password` - Forgot password request
-- `auth.reset_password` - Password reset
-- `auth.verify_email` - Email verification
-
-### Session
+- `auth.signin.{provider}` - OAuth sign in (e.g., `auth.signin.google`, `auth.signin.github`)
+- `auth.signup.{provider}` - OAuth sign up
 - `auth.signout` - User signout
 
 ## Span Attributes
@@ -52,16 +73,19 @@ Each span includes:
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `auth.operation` | Type of operation | `signin`, `signup`, `oauth_callback` |
-| `auth.method` | Auth method | `password`, `oauth` |
-| `auth.provider` | OAuth provider | `google`, `github` |
+| `auth.operation` | Type of operation | `signin`, `signup`, `get_session`, `signout` |
+| `auth.method` | Auth method | `email`, `oauth` |
+| `auth.provider` | OAuth provider (when applicable) | `google`, `github` |
 | `auth.success` | Operation success | `true`, `false` |
-| `auth.error` | Error message | `HTTP 401` |
+| `auth.error` | Error message (when failed) | `Invalid credentials` |
+| `user.id` | User ID (when available) | `user_123456` |
+| `user.email` | User email (when available) | `user@example.com` |
+| `session.id` | Session ID (when available) | `session_abcdef` |
 
 ## Configuration
 
 ```typescript
-otelPlugin({
+instrumentBetterAuth(authClient, {
   tracerName: "my-app-auth",  // Custom tracer name
   tracer: customTracer,       // Custom tracer instance
 })
@@ -69,61 +93,136 @@ otelPlugin({
 
 ## Examples
 
-### Next.js
+### Server-Side (Next.js App Router)
 
 ```typescript
 // lib/auth.ts
 import { betterAuth } from "better-auth";
-import { otelPlugin } from "@kubiks/otel-better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
+import { db } from "./db";
 
-export const auth = betterAuth({
-  database: db,
+export const auth = instrumentBetterAuth(betterAuth({
+  baseURL: process.env.BETTER_AUTH_URL,
+  database: drizzleAdapter(db, { provider: "pg" }),
   socialProviders: {
-    github: { clientId: "...", clientSecret: "..." },
-    google: { clientId: "...", clientSecret: "..." },
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    },
   },
-}).use(otelPlugin());
+}));
+
+// app/api/auth/[...all]/route.ts
+import { auth } from "@/lib/auth";
+export { GET, POST } = auth.handler;
 ```
 
-### With Other Plugins
+### Client-Side (React/Next.js)
 
 ```typescript
-import { organization, admin } from "better-auth/plugins";
-import { otelPlugin } from "@kubiks/otel-better-auth";
+// lib/auth-client.ts
+import { createAuthClient } from "better-auth/client";
+import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 
-export const auth = betterAuth({
-  database: db,
-}).use(
-  organization(),
-  admin(),
-  otelPlugin()  // Works with any Better Auth plugin
-);
+export const authClient = createAuthClient({
+  baseURL: process.env.NEXT_PUBLIC_BETTER_AUTH_URL,
+});
+
+instrumentBetterAuth(authClient);
+```
+
+```typescript
+// components/LoginForm.tsx
+import { authClient } from "@/lib/auth-client";
+
+function LoginForm() {
+  const handleLogin = async (email: string, password: string) => {
+    // This call is automatically traced
+    const result = await authClient.signIn.email({ email, password });
+    
+    if (result.data) {
+      console.log("Logged in:", result.data.user);
+    }
+  };
+
+  return (/* ... */);
+}
+```
+
+### Server API Usage
+
+```typescript
+// Server-side route handler
+import { auth } from "@/lib/auth";
+
+export async function GET(request: Request) {
+  // This call is automatically traced with full context
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
+
+  if (session?.user) {
+    return Response.json({ user: session.user });
+  }
+  
+  return Response.json({ error: "Unauthorized" }, { status: 401 });
+}
 ```
 
 ## Trace Example
 
-When a user signs in with GitHub:
+### Server-Side Trace
+
+When a user signs in via the server API:
 
 ```
-Span: auth.oauth.github.initiate  [12ms]
-├─ auth.operation: oauth_initiate
-├─ auth.method: oauth
-├─ auth.provider: github
-└─ auth.success: true
+Span: auth.api.signin.email  [245ms]
+├─ auth.operation: signin
+├─ auth.method: email
+├─ auth.success: true
+├─ user.id: user_abc123
+├─ user.email: user@example.com
+└─ session.id: session_xyz789
 
-Span: auth.oauth.github  [245ms]
-├─ auth.operation: oauth_callback
-├─ auth.method: oauth
-├─ auth.provider: github
-└─ auth.success: true
+Span: auth.api.get_session  [12ms]
+├─ auth.operation: get_session
+├─ auth.success: true
+├─ user.id: user_abc123
+└─ session.id: session_xyz789
+```
+
+### Client-Side Trace
+
+When a user signs in via the client:
+
+```
+Span: auth.signin.email  [245ms]
+├─ auth.operation: signin
+├─ auth.method: email
+├─ auth.success: true
+├─ user.id: user_abc123
+├─ user.email: user@example.com
+└─ session.id: session_xyz789
+
+Span: auth.get_session  [12ms]
+├─ auth.operation: get_session
+├─ auth.success: true
+├─ user.id: user_abc123
+└─ session.id: session_xyz789
 ```
 
 ## Framework Support
 
+Works with any JavaScript/TypeScript environment where Better Auth client runs:
+
 ✅ Next.js (App Router & Pages Router)
-✅ Express
-✅ SvelteKit  
-✅ Any framework supported by Better Auth
+✅ React / React Native
+✅ Vue / Nuxt
+✅ Svelte / SvelteKit  
+✅ Solid.js
+✅ Node.js
+✅ Any framework with Better Auth client support
 
 ## Related
 
