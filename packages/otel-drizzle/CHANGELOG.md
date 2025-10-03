@@ -1,5 +1,11 @@
 # @kubiks/otel-drizzle
 
+## 2.0.3
+
+### Patch Changes
+
+- [`d082628`](https://github.com/kubiks-inc/otel/commit/d082628085d5a1b68b1cdd1cd533b1897c32985a) Thanks [@alex-holovach](https://github.com/alex-holovach)! - update README
+
 ## 2.0.2
 
 ### Patch Changes
