@@ -130,3 +130,7 @@ export const auth = instrumentBetterAuth(
 import { auth } from "@/lib/auth";
 export { GET, POST } = auth.handler;
 ```
+
+## License
+
+MIT
