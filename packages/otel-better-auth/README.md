@@ -2,6 +2,10 @@
 
 OpenTelemetry instrumentation for [Better Auth](https://better-auth.com/). One-line setup for complete auth observability across all auth flows.
 
+![Better Auth Trace Visualization](https://github.com/kubiks-inc/otel/blob/main/images/otel-better-auth-trace.png)
+
+_Visualize your authentication flows with detailed span information including operation type, user IDs, session IDs, auth methods, and success/failure status._
+
 ## Installation
 
 ```bash
