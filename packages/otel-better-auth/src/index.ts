@@ -102,6 +102,9 @@ export function otelPlugin(config?: OtelBetterAuthConfig): BetterAuthPlugin {
         } else if (path.endsWith("/sign-out")) {
           spanName = "auth.signout";
           attributes[SEMATTRS_AUTH_OPERATION] = "signout";
+        } else if (path.endsWith("/get-session")) {
+          spanName = "auth.get_session";
+          attributes[SEMATTRS_AUTH_OPERATION] = "get_session";
         } else if (path.includes("/sign-in/") && !path.endsWith("/sign-in/email")) {
           // OAuth initiation
           const pathParts = path.split("/sign-in/");
@@ -146,6 +149,24 @@ export function otelPlugin(config?: OtelBetterAuthConfig): BetterAuthPlugin {
         if (span) {
           const success = response.status >= 200 && response.status < 400;
           span.setAttribute(SEMATTRS_AUTH_SUCCESS, success);
+
+          // Extract userId and sessionId from response for get-session endpoint
+          if (success && url.includes("/get-session")) {
+            try {
+              // Clone the response to avoid consuming the body
+              const clonedResponse = response.clone();
+              const body = await clonedResponse.json();
+              
+              if (body?.user?.id) {
+                span.setAttribute(SEMATTRS_USER_ID, body.user.id);
+              }
+              if (body?.session?.id) {
+                span.setAttribute(SEMATTRS_SESSION_ID, body.session.id);
+              }
+            } catch (parseError) {
+              // Silently fail if we can't parse the response
+            }
+          }
 
           if (success) {
             span.setStatus({ code: SpanStatusCode.OK });
