@@ -120,7 +120,7 @@ function wrapAuthMethod<T extends (...args: any[]) => Promise<any>>(
               span.setStatus({ code: SpanStatusCode.ERROR });
             }
           } else {
-            // Handle direct response format (server API)
+            // Handle direct response format (Better Auth API)
             if (result.user?.id) {
               span.setAttribute(SEMATTRS_USER_ID, result.user.id);
             }
@@ -179,7 +179,7 @@ const API_METHOD_METADATA: Record<
 };
 
 /**
- * Instruments a Better Auth server instance with OpenTelemetry tracing.
+ * Instruments a Better Auth instance with OpenTelemetry tracing.
  */
 function instrumentServer<O extends Record<string, any> = any>(
   server: Auth<O>,
@@ -267,31 +267,30 @@ function ensureOtelPlugin<Options extends BetterAuthInstanceOptions = BetterAuth
 }
 
 /**
- * Instruments a Better Auth server instance with OpenTelemetry tracing.
+ * Instruments a Better Auth instance with OpenTelemetry tracing.
  *
- * This function wraps all server API methods (api.getSession, api.signInEmail, etc.)
+ * This function wraps all Better Auth API methods (api.getSession, api.signInEmail, etc.)
  * to automatically create spans for each auth operation. It captures user IDs,
  * session IDs, and auth status in span attributes.
  *
  * The instrumentation is idempotent - calling it multiple times on the same
  * instance will only instrument it once.
  *
- * @param auth - The Better Auth server instance to instrument
+ * @param auth - The Better Auth instance to instrument
  * @param config - Optional configuration for instrumentation behavior
  * @returns The instrumented auth instance (same instance, modified in place)
  *
  * @example
  * ```typescript
  * import { betterAuth } from "better-auth";
- * import { instrumentBetterAuth, otelPlugin } from "@kubiks/otel-better-auth";
+ * import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
  *
  * export const auth = instrumentBetterAuth(betterAuth({
  *   database: db,
- *   plugins: [otelPlugin()], // For HTTP-level tracing
- *   // ... your config
+ *   // ... your Better Auth config
  * }));
  *
- * // Now direct API calls are traced:
+ * // Direct API calls are traced automatically:
  * await auth.api.getSession({ headers });
  * ```
  */
