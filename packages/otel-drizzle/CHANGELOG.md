@@ -1,5 +1,17 @@
 # @kubiks/otel-drizzle
 
+## 3.0.0
+
+### Major Changes
+
+- [#6](https://github.com/kubiks-inc/otel/pull/6) [`9da64d2`](https://github.com/kubiks-inc/otel/commit/9da64d25ba4d72fa1ee1646e40876a8fb3ef1487) Thanks [@alex-holovach](https://github.com/alex-holovach)! - Initial release of @kubiks/otel-drizzle - OpenTelemetry instrumentation for Drizzle ORM
+
+  - Automatic span creation for all database queries
+  - Support for PostgreSQL, MySQL, and SQLite
+  - Configurable query text capture and truncation
+  - Full OpenTelemetry semantic conventions support
+  - Zero-configuration setup with one line of code
+
 ## 2.0.3
 
 ### Patch Changes
