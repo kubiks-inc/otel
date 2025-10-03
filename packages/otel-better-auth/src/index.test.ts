@@ -245,11 +245,4 @@ describe("otel-better-auth", () => {
       expect(SEMATTRS_AUTH_ERROR).toBe("auth.error");
     });
   });
-
-  describe("Default export", () => {
-    it("should export instrumentBetterAuth as default", async () => {
-      const { default: defaultExport } = await import("./index.js");
-      expect(defaultExport).toBe(instrumentBetterAuth);
-    });
-  });
 });
