@@ -1,0 +1,190 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+import {
+  instrumentResend,
+  SEMATTRS_MESSAGING_OPERATION,
+  SEMATTRS_MESSAGING_SYSTEM,
+  SEMATTRS_RESEND_MESSAGE_COUNT,
+  SEMATTRS_RESEND_MESSAGE_ID,
+  SEMATTRS_RESEND_RECIPIENT_COUNT,
+  SEMATTRS_RESEND_RESOURCE,
+  SEMATTRS_RESEND_RESOURCE_ID,
+  SEMATTRS_RESEND_TARGET,
+  SEMATTRS_RESEND_TEMPLATE_ID,
+} from "./index";
+
+describe("instrumentResend", () => {
+  let provider: BasicTracerProvider;
+  let exporter: InMemorySpanExporter;
+
+  beforeEach(() => {
+    exporter = new InMemorySpanExporter();
+    provider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
+    trace.setGlobalTracerProvider(provider);
+  });
+
+  afterEach(async () => {
+    await provider.shutdown();
+    exporter.reset();
+    trace.disable();
+  });
+
+  const createMockResend = () => {
+    class EmailsResource {
+      async send(payload: Record<string, unknown>) {
+        return { id: "email_123", payload };
+      }
+
+      async list() {
+        return { data: [{ id: "email_1" }, { id: "email_2" }] };
+      }
+
+      fail() {
+        throw new Error("boom");
+      }
+    }
+
+    class DomainsResource {
+      async create() {
+        return { id: "domain_123" };
+      }
+    }
+
+    return {
+      emails: new EmailsResource(),
+      domains: new DomainsResource(),
+      apiKeys: {
+        create: vi.fn(async () => ({ id: "key_abc" })),
+      },
+      ping: vi.fn(() => "pong"),
+    };
+  };
+
+  it("wraps methods and records spans", async () => {
+    const resend = createMockResend();
+    instrumentResend(resend);
+
+    const payload = {
+      to: ["user@example.com", { email: "second@example.com" }],
+      template_id: "tmpl_123",
+    };
+
+    const response = await resend.emails.send(payload);
+    expect(response.id).toBe("email_123");
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.name).toBe("resend.emails.send");
+    expect(span.attributes[SEMATTRS_MESSAGING_SYSTEM]).toBe("resend");
+    expect(span.attributes[SEMATTRS_MESSAGING_OPERATION]).toBe("send");
+    expect(span.attributes[SEMATTRS_RESEND_RESOURCE]).toBe("emails");
+    expect(span.attributes[SEMATTRS_RESEND_TARGET]).toBe("emails.send");
+    expect(span.attributes[SEMATTRS_RESEND_MESSAGE_ID]).toBe("email_123");
+    expect(span.attributes[SEMATTRS_RESEND_MESSAGE_COUNT]).toBe(1);
+    expect(span.attributes[SEMATTRS_RESEND_RECIPIENT_COUNT]).toBe(2);
+    expect(span.attributes[SEMATTRS_RESEND_TEMPLATE_ID]).toBe("tmpl_123");
+    expect(span.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("records spans for prototype methods", async () => {
+    const resend = createMockResend();
+    instrumentResend(resend);
+
+    await resend.domains.create();
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.name).toBe("resend.domains.create");
+    expect(span.attributes[SEMATTRS_RESEND_RESOURCE]).toBe("domains");
+    expect(span.attributes[SEMATTRS_RESEND_MESSAGE_ID]).toBeUndefined();
+    expect(span.attributes[SEMATTRS_RESEND_RESOURCE_ID]).toBe("domain_123");
+    expect(span.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("handles synchronous functions", () => {
+    const resend = createMockResend();
+    instrumentResend(resend);
+
+    const result = resend.ping();
+    expect(result).toBe("pong");
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.name).toBe("resend.ping");
+    expect(span.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("captures errors and marks span status", async () => {
+    const resend = createMockResend();
+    instrumentResend(resend);
+
+    await expect(async () => resend.emails.fail()).rejects.toThrowError("boom");
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
+    const hasException = span.events.some((event) => event.name === "exception");
+    expect(hasException).toBe(true);
+  });
+
+  it("is idempotent", async () => {
+    const resend = createMockResend();
+    const first = instrumentResend(resend);
+    const second = instrumentResend(first);
+
+    expect(first).toBe(second);
+    expect(first.emails.send).toBe(second.emails.send);
+
+    await second.emails.send({});
+
+    expect(exporter.getFinishedSpans()).toHaveLength(1);
+  });
+
+  it("respects shouldInstrument filter", async () => {
+    const resend = createMockResend();
+    instrumentResend(resend, {
+      shouldInstrument: (path, methodName) => {
+        if (path[0] === "emails" && methodName === "list") {
+          return false;
+        }
+        return true;
+      },
+    });
+
+    await resend.emails.list();
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(0);
+  });
+});
