@@ -24,8 +24,7 @@ Our goal is to bring the TypeScript ecosystem the observability tools it’s bee
 - [Polar.sh](https://polar.sh/)
 - [Autumn](https://useautumn.com/)
 - [ClickHouse](https://clickhouse.com/)
-- HTTP Instrumentation
-- AI SDK Instrumentation
+- [AI SDK](https://ai-sdk.dev/)
 - [Mastra](https://mastra.ai/)
 - [Next.js Opentelemetry SDK](https://nextjs.org)
 - ...and anything you need next.
