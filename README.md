@@ -6,7 +6,7 @@
 
 Observability should give engineers a clear view of what their systems are doing and not feel like another setup you have to wrestle with.
 
-Our goal is to give engineers the best observability tools the TypeScript ecosystem deserves, built on the OpenTelemetry standard and natively integrated with your favorite tech stack.
+Our goal is to bring the TypeScript ecosystem the observability tools it’s been missing — built on the OpenTelemetry standard and designed to integrate natively with your favorite stack.
 
 ---
 
