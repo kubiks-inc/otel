@@ -19,13 +19,13 @@ Our goal is to bring the TypeScript ecosystem the observability tools it’s bee
 
 ## Coming soon
 
-- Resend
-- Stripe
-- Polar.sh
-- Autumn Pricing
-- ClickHouse
-- HTTP Instrumentation
-- Next.js Opentelemetry SDK
+- [Resend](https://resend.com/)
+- [Stripe](https://stripe.com/)
+- [Polar.sh](https://polar.sh/)
+- [Autumn](https://useautumn.com/)
+- [ClickHouse](https://clickhouse.com/)
+- [HTTP Instrumentation]
+- [Next.js Opentelemetry SDK](https://nextjs.org)
 - ...and anything you need next.
 
 Need support for something? [Open an issue](https://github.com/kubiks-inc/otel/issues) to request or ship a new integration.
