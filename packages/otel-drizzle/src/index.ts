@@ -316,3 +316,173 @@ export function instrumentDrizzle<TClient extends DrizzleClientLike>(
 
   return client;
 }
+
+/**
+ * Interface for Drizzle database instances with minimal type requirements.
+ */
+interface DrizzleDbLike {
+  $client?: DrizzleClientLike;
+  _?: {
+    session?: {
+      execute?: QueryFunction;
+      [INSTRUMENTED_FLAG]?: true;
+    };
+  };
+}
+
+/**
+ * Instruments an already created Drizzle database instance with OpenTelemetry tracing.
+ *
+ * This function is useful when you have a Drizzle database instance created with
+ * `const db = drizzle(pool, { schema })` and want to add instrumentation to it
+ * without having direct access to the underlying pool.
+ *
+ * The instrumentation is idempotent - calling it multiple times on the same
+ * database will only instrument it once.
+ *
+ * @typeParam TDb - The type of the Drizzle database instance
+ * @param db - The Drizzle database instance to instrument
+ * @param config - Optional configuration for instrumentation behavior
+ * @returns The instrumented database instance (same instance, modified in place)
+ *
+ * @example
+ * ```typescript
+ * // When you have a pre-created Drizzle database instance
+ * import { drizzle } from 'drizzle-orm/node-postgres';
+ * import { Pool } from 'pg';
+ * import { instrumentDrizzleClient } from '@kubiks/otel-drizzle';
+ * import * as schema from './schema';
+ *
+ * const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+ * const db = drizzle(pool, { schema });
+ *
+ * // Instrument the existing db instance
+ * instrumentDrizzleClient(db, {
+ *   dbSystem: 'postgresql',
+ *   dbName: 'myapp',
+ *   captureQueryText: true,
+ *   peerName: 'db.example.com',
+ *   peerPort: 5432,
+ * });
+ * 
+ * // Now all queries through db are traced
+ * const users = await db.select().from(schema.users);
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Works with any Drizzle driver
+ * import { drizzle } from 'drizzle-orm/mysql2';
+ * import mysql from 'mysql2/promise';
+ * import { instrumentDrizzleClient } from '@kubiks/otel-drizzle';
+ *
+ * const connection = await mysql.createConnection(process.env.DATABASE_URL);
+ * const db = drizzle(connection);
+ * 
+ * instrumentDrizzleClient(db, { dbSystem: 'mysql' });
+ * ```
+ */
+export function instrumentDrizzleClient<TDb extends DrizzleDbLike>(
+  db: TDb,
+  config?: InstrumentDrizzleConfig,
+): TDb {
+  if (!db) {
+    return db;
+  }
+
+  // Try to instrument via $client first (most common case)
+  if (db.$client && typeof db.$client.query === "function") {
+    instrumentDrizzle(db.$client, config);
+    return db;
+  }
+
+  // Try to instrument via session.execute as fallback
+  if (db._ && db._.session && typeof db._.session.execute === "function") {
+    const session = db._.session;
+    
+    // Check if already instrumented
+    if (session[INSTRUMENTED_FLAG]) {
+      return db;
+    }
+
+    const {
+      tracerName = DEFAULT_TRACER_NAME,
+      dbSystem = DEFAULT_DB_SYSTEM,
+      dbName,
+      captureQueryText = true,
+      maxQueryTextLength = 1000,
+      peerName,
+      peerPort,
+    } = config ?? {};
+
+    const tracer = trace.getTracer(tracerName);
+    const originalExecute = session.execute;
+
+    if (!originalExecute) {
+      return db;
+    }
+
+    const instrumentedExecute: QueryFunction = function instrumented(
+      this: unknown,
+      ...args: unknown[]
+    ) {
+      // Extract query information
+      const queryText = extractQueryText(args[0]);
+      const operation = queryText ? extractOperation(queryText) : undefined;
+      const spanName = operation
+        ? `drizzle.${operation.toLowerCase()}`
+        : "drizzle.query";
+
+      // Start span
+      const span = tracer.startSpan(spanName, { kind: SpanKind.CLIENT });
+      span.setAttribute(SEMATTRS_DB_SYSTEM, dbSystem);
+
+      if (operation) {
+        span.setAttribute(SEMATTRS_DB_OPERATION, operation);
+      }
+
+      if (dbName) {
+        span.setAttribute(SEMATTRS_DB_NAME, dbName);
+      }
+
+      if (captureQueryText && queryText !== undefined) {
+        const sanitized = sanitizeQueryText(queryText, maxQueryTextLength);
+        span.setAttribute(SEMATTRS_DB_STATEMENT, sanitized);
+      }
+
+      if (peerName) {
+        span.setAttribute(SEMATTRS_NET_PEER_NAME, peerName);
+      }
+
+      if (peerPort) {
+        span.setAttribute(SEMATTRS_NET_PEER_PORT, peerPort);
+      }
+
+      const activeContext = trace.setSpan(context.active(), span);
+
+      // Promise-based pattern (session.execute is typically promise-based)
+      return context.with(activeContext, () => {
+        try {
+          const result = originalExecute.apply(this, args);
+          return Promise.resolve(result)
+            .then((value) => {
+              finalizeSpan(span);
+              return value;
+            })
+            .catch((error) => {
+              finalizeSpan(span, error);
+              throw error;
+            });
+        } catch (error) {
+          finalizeSpan(span, error);
+          throw error;
+        }
+      });
+    };
+
+    session[INSTRUMENTED_FLAG] = true;
+    session.execute = instrumentedExecute;
+  }
+
+  return db;
+}

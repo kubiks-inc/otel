@@ -42,7 +42,11 @@ Works with any observability platform that supports OpenTelemetry including:
 
 ## Usage
 
-Simply wrap your database connection pool with `instrumentDrizzle()` before passing it to Drizzle:
+There are two ways to instrument Drizzle ORM with OpenTelemetry:
+
+### Option 1: Instrument the Connection Pool (Recommended)
+
+Wrap your database connection pool with `instrumentDrizzle()` before passing it to Drizzle:
 
 ```typescript
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -57,9 +61,32 @@ const db = drizzle(instrumentedPool);
 const users = await db.select().from(usersTable);
 ```
 
-### Optional Configuration
+### Option 2: Instrument an Existing Drizzle Client
+
+If you already have a Drizzle database instance or don't have access to the underlying pool, use `instrumentDrizzleClient()`:
 
 ```typescript
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
+import * as schema from "./schema";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = drizzle(pool, { schema });
+
+// Instrument the existing database instance
+instrumentDrizzleClient(db);
+
+// All queries are now traced automatically
+const users = await db.select().from(schema.users);
+```
+
+### Optional Configuration
+
+Both instrumentation methods accept the same configuration options:
+
+```typescript
+// Option 1: Instrument the pool
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const instrumentedPool = instrumentDrizzle(pool, {
   dbSystem: "postgresql", // Database type (default: 'postgresql')
@@ -70,6 +97,16 @@ const instrumentedPool = instrumentDrizzle(pool, {
   peerPort: 5432, // Database server port
 });
 const db = drizzle(instrumentedPool);
+
+// Option 2: Instrument the Drizzle client
+const db = drizzle(pool, { schema });
+instrumentDrizzleClient(db, {
+  dbSystem: "postgresql",
+  dbName: "myapp",
+  captureQueryText: true,
+  peerName: "db.example.com",
+  peerPort: 5432,
+});
 ```
 
 ### Works with All Drizzle-Supported Databases
