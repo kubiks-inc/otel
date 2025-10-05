@@ -141,41 +141,61 @@ function finalizeSpan(span: Span, error?: unknown): void {
 }
 
 /**
- * Instruments a Drizzle database client with OpenTelemetry tracing.
+ * Instruments a database connection pool with OpenTelemetry tracing.
  *
- * This function wraps the client's `query` method to automatically create
- * spans for each database operation. It supports both promise-based and
- * callback-based query patterns.
- *
+ * This function wraps the connection pool's `query` method to automatically create
+ * spans for each database operation.
  * The instrumentation is idempotent - calling it multiple times on the same
- * client will only instrument it once.
+ * pool will only instrument it once.
  *
- * @typeParam TClient - The type of the Drizzle client
- * @param client - The Drizzle client instance to instrument
+ * @typeParam TClient - The type of the database connection pool or client
+ * @param client - The database connection pool or client to instrument (e.g., pg Pool, mysql2 Connection)
  * @param config - Optional configuration for instrumentation behavior
- * @returns The instrumented client (same instance, modified in place)
+ * @returns The instrumented pool/client (same instance, modified in place)
  *
  * @example
  * ```typescript
+ * // PostgreSQL with node-postgres
  * import { drizzle } from 'drizzle-orm/node-postgres';
  * import { Pool } from 'pg';
  * import { instrumentDrizzle } from '@kubiks/otel-drizzle';
  *
  * const pool = new Pool({ connectionString: process.env.DATABASE_URL });
- * const db = drizzle(pool);
+ * const instrumentedPool = instrumentDrizzle(pool);
+ * const db = drizzle(instrumentedPool);
  *
- * // Instrument with defaults
- * instrumentDrizzle(db);
- *
- * // Or with custom configuration
- * instrumentDrizzle(db, {
+ * // With custom configuration
+ * const instrumentedPool = instrumentDrizzle(pool, {
  *   dbSystem: 'postgresql',
  *   dbName: 'myapp',
  *   captureQueryText: true,
- *   maxQueryTextLength: 500,
+ *   maxQueryTextLength: 1000,
  *   peerName: 'db.example.com',
  *   peerPort: 5432,
  * });
+ * const db = drizzle(instrumentedPool);
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // MySQL with mysql2
+ * import { drizzle } from 'drizzle-orm/mysql2';
+ * import mysql from 'mysql2/promise';
+ * import { instrumentDrizzle } from '@kubiks/otel-drizzle';
+ *
+ * const connection = await mysql.createConnection(process.env.DATABASE_URL);
+ * const db = drizzle(instrumentDrizzle(connection, { dbSystem: 'mysql' }));
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // SQLite with better-sqlite3
+ * import { drizzle } from 'drizzle-orm/better-sqlite3';
+ * import Database from 'better-sqlite3';
+ * import { instrumentDrizzle } from '@kubiks/otel-drizzle';
+ *
+ * const sqlite = new Database('database.db');
+ * const db = drizzle(instrumentDrizzle(sqlite, { dbSystem: 'sqlite' }));
  * ```
  */
 export function instrumentDrizzle<TClient extends DrizzleClientLike>(
