@@ -65,7 +65,7 @@ const users = await db.select().from(usersTable);
 #### PostgreSQL
 
 ```typescript
-// PostgreSQL with postgres.js (recommended for serverless)
+// PostgreSQL with postgres.js
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
