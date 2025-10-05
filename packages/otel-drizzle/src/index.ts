@@ -22,11 +22,13 @@ export const SEMATTRS_NET_PEER_PORT = "net.peer.port";
 
 type QueryCallback = (error: unknown, result: unknown) => void;
 
-type QueryFunction = (...args: unknown[]) => unknown;
+type QueryFunction = (...args: any[]) => any;
 
 interface DrizzleClientLike {
-  query: QueryFunction;
+  query?: QueryFunction;
+  execute?: QueryFunction;
   [INSTRUMENTED_FLAG]?: true;
+  [key: string]: any; // Allow other properties
 }
 
 /**
@@ -82,13 +84,13 @@ function extractQueryText(queryArg: unknown): string | undefined {
     return queryArg;
   }
   if (queryArg && typeof queryArg === "object") {
+    // Generic SQL object format (used by LibSQL, MySQL, and others)
+    if (typeof (queryArg as { sql?: unknown }).sql === "string") {
+      return (queryArg as { sql: string }).sql;
+    }
     // PostgreSQL-style query object
     if (typeof (queryArg as { text?: unknown }).text === "string") {
       return (queryArg as { text: string }).text;
-    }
-    // MySQL/generic-style query object
-    if (typeof (queryArg as { sql?: unknown }).sql === "string") {
-      return (queryArg as { sql: string }).sql;
     }
     // Drizzle SQL object
     if (
@@ -141,15 +143,16 @@ function finalizeSpan(span: Span, error?: unknown): void {
 }
 
 /**
- * Instruments a database connection pool with OpenTelemetry tracing.
+ * Instruments a database connection pool or client with OpenTelemetry tracing.
  *
- * This function wraps the connection pool's `query` method to automatically create
- * spans for each database operation.
+ * This function wraps the connection's `query` or `execute` method to automatically create
+ * spans for each database operation. It automatically detects which method is available
+ * and instruments it appropriately for any database driver.
  * The instrumentation is idempotent - calling it multiple times on the same
- * pool will only instrument it once.
+ * connection will only instrument it once.
  *
  * @typeParam TClient - The type of the database connection pool or client
- * @param client - The database connection pool or client to instrument (e.g., pg Pool, mysql2 Connection)
+ * @param client - The database connection pool or client to instrument (e.g., pg Pool, mysql2 Connection, LibSQL Client)
  * @param config - Optional configuration for instrumentation behavior
  * @returns The instrumented pool/client (same instance, modified in place)
  *
@@ -197,6 +200,17 @@ function finalizeSpan(span: Span, error?: unknown): void {
  * const sqlite = new Database('database.db');
  * const db = drizzle(instrumentDrizzle(sqlite, { dbSystem: 'sqlite' }));
  * ```
+ *
+ * @example
+ * ```typescript
+ * // LibSQL/Turso (automatically detects 'execute' method)
+ * import { drizzle } from 'drizzle-orm/libsql';
+ * import { createClient } from '@libsql/client';
+ * import { instrumentDrizzle } from '@kubiks/otel-drizzle';
+ *
+ * const client = createClient({ url: '...', authToken: '...' });
+ * const db = drizzle(instrumentDrizzle(client, { dbSystem: 'sqlite' }));
+ * ```
  */
 export function instrumentDrizzle<TClient extends DrizzleClientLike>(
   client: TClient,
@@ -205,7 +219,12 @@ export function instrumentDrizzle<TClient extends DrizzleClientLike>(
   if (!client) {
     return client;
   }
-  if (typeof client.query !== "function") {
+  
+  // Check if client has query or execute method
+  const hasQuery = typeof client.query === "function";
+  const hasExecute = typeof client.execute === "function";
+  
+  if (!hasQuery && !hasExecute) {
     return client;
   }
 
@@ -224,11 +243,18 @@ export function instrumentDrizzle<TClient extends DrizzleClientLike>(
   } = config ?? {};
 
   const tracer = trace.getTracer(tracerName);
-  const originalQuery = client.query;
+  
+  // Store the original method (query or execute)
+  const methodName = hasQuery ? "query" : "execute";
+  const originalMethod = hasQuery ? client.query : client.execute;
 
-  const instrumentedQuery: QueryFunction = function instrumented(
-    this: unknown,
-    ...incomingArgs: unknown[]
+  if (!originalMethod) {
+    return client;
+  }
+
+  const instrumentedMethod: QueryFunction = function instrumented(
+    this: any,
+    ...incomingArgs: any[]
   ) {
     const args = [...incomingArgs];
     let callback: QueryCallback | undefined;
@@ -283,7 +309,7 @@ export function instrumentDrizzle<TClient extends DrizzleClientLike>(
         };
 
         try {
-          return originalQuery.apply(this, [...args, wrappedCallback]);
+          return originalMethod.apply(this, [...args, wrappedCallback]);
         } catch (error) {
           finalizeSpan(span, error);
           throw error;
@@ -294,7 +320,7 @@ export function instrumentDrizzle<TClient extends DrizzleClientLike>(
     // Promise-based pattern
     return context.with(activeContext, () => {
       try {
-        const result = originalQuery.apply(this, args);
+        const result = originalMethod.apply(this, args);
         return Promise.resolve(result)
           .then((value) => {
             finalizeSpan(span);
@@ -312,7 +338,13 @@ export function instrumentDrizzle<TClient extends DrizzleClientLike>(
   };
 
   client[INSTRUMENTED_FLAG] = true;
-  client.query = instrumentedQuery;
+  
+  // Replace the original method with the instrumented one
+  if (hasQuery) {
+    client.query = instrumentedMethod;
+  } else {
+    client.execute = instrumentedMethod;
+  }
 
   return client;
 }
@@ -321,21 +353,37 @@ export function instrumentDrizzle<TClient extends DrizzleClientLike>(
  * Interface for Drizzle database instances with minimal type requirements.
  */
 interface DrizzleDbLike {
-  $client?: DrizzleClientLike;
+  $client?: DrizzleClientLike | any; // Allow any client type
+  execute?: QueryFunction; // Direct execute method on db
+  transaction?: QueryFunction; // Transaction method on db
   _?: {
     session?: {
       execute?: QueryFunction;
       [INSTRUMENTED_FLAG]?: true;
+      [key: string]: any;
     };
+    [key: string]: any;
   };
+  [INSTRUMENTED_FLAG]?: true;
+  [key: string]: any; // Allow other properties
 }
 
 /**
  * Instruments an already created Drizzle database instance with OpenTelemetry tracing.
  *
- * This function is useful when you have a Drizzle database instance created with
- * `const db = drizzle(pool, { schema })` and want to add instrumentation to it
- * without having direct access to the underlying pool.
+ * This function instruments the database at the session level, intercepting:
+ * - `session.prepareQuery` - Used by all query builders (select, insert, update, delete)
+ * - `session.query` - Used for direct SQL execution
+ * - `$client` methods - As a fallback for underlying connection
+ *
+ * This ensures all database operations are traced, whether you use:
+ * - Query builders: `db.select().from(table)`
+ * - Direct execution: `db.execute(sql)`
+ * - Transactions: `db.transaction()`
+ *
+ * This is useful when you have a Drizzle database instance created with
+ * `const db = drizzle(connectionString)` or `const db = drizzle(pool, { schema })`
+ * and want to add instrumentation to it without having direct access to the underlying pool.
  *
  * The instrumentation is idempotent - calling it multiple times on the same
  * database will only instrument it once.
@@ -390,14 +438,340 @@ export function instrumentDrizzleClient<TDb extends DrizzleDbLike>(
     return db;
   }
 
-  // Try to instrument via $client first (most common case)
-  if (db.$client && typeof db.$client.query === "function") {
-    instrumentDrizzle(db.$client, config);
+  // Check if already instrumented
+  if (db[INSTRUMENTED_FLAG]) {
     return db;
   }
 
-  // Try to instrument via session.execute as fallback
-  if (db._ && db._.session && typeof db._.session.execute === "function") {
+  const {
+    tracerName = DEFAULT_TRACER_NAME,
+    dbSystem = DEFAULT_DB_SYSTEM,
+    dbName,
+    captureQueryText = true,
+    maxQueryTextLength = 1000,
+    peerName,
+    peerPort,
+  } = config ?? {};
+
+  const tracer = trace.getTracer(tracerName);
+  let instrumented = false;
+
+  // First priority: Instrument the session directly
+  // This is where all queries actually go through
+  if ((db as any).session && !instrumented) {
+    const session = (db as any).session;
+    
+    // Check if session has prepareQuery method (used by select/insert/update/delete)
+    if (typeof session.prepareQuery === "function" && !session[INSTRUMENTED_FLAG]) {
+      const originalPrepareQuery = session.prepareQuery;
+      
+      session.prepareQuery = function(...args: any[]) {
+        const prepared = originalPrepareQuery.apply(this, args);
+        
+        // Wrap the prepared query's execute method
+        if (prepared && typeof prepared.execute === "function") {
+          const originalPreparedExecute = prepared.execute;
+          
+          prepared.execute = function(this: any, ...executeArgs: any[]) {
+            // Extract query information from the query object
+            const queryObj = args[0]; // The query object passed to prepareQuery
+            const queryText = queryObj?.sql || queryObj?.queryString || extractQueryText(queryObj);
+            const operation = queryText ? extractOperation(queryText) : undefined;
+            const spanName = operation
+              ? `drizzle.${operation.toLowerCase()}`
+              : "drizzle.query";
+
+            // Start span
+            const span = tracer.startSpan(spanName, { kind: SpanKind.CLIENT });
+            span.setAttribute(SEMATTRS_DB_SYSTEM, dbSystem);
+
+            if (operation) {
+              span.setAttribute(SEMATTRS_DB_OPERATION, operation);
+            }
+
+            if (dbName) {
+              span.setAttribute(SEMATTRS_DB_NAME, dbName);
+            }
+
+            if (captureQueryText && queryText !== undefined) {
+              const sanitized = sanitizeQueryText(queryText, maxQueryTextLength);
+              span.setAttribute(SEMATTRS_DB_STATEMENT, sanitized);
+            }
+
+            if (peerName) {
+              span.setAttribute(SEMATTRS_NET_PEER_NAME, peerName);
+            }
+
+            if (peerPort) {
+              span.setAttribute(SEMATTRS_NET_PEER_PORT, peerPort);
+            }
+
+            const activeContext = trace.setSpan(context.active(), span);
+
+            // Execute the prepared query
+            return context.with(activeContext, () => {
+              try {
+                const result = originalPreparedExecute.apply(this, executeArgs);
+                return Promise.resolve(result)
+                  .then((value) => {
+                    finalizeSpan(span);
+                    return value;
+                  })
+                  .catch((error) => {
+                    finalizeSpan(span, error);
+                    throw error;
+                  });
+              } catch (error) {
+                finalizeSpan(span, error);
+                throw error;
+              }
+            });
+          };
+        }
+        
+        return prepared;
+      };
+      
+      session[INSTRUMENTED_FLAG] = true;
+      instrumented = true;
+    }
+
+    // Also instrument direct query method if exists
+    if (typeof session.query === "function" && !session[INSTRUMENTED_FLAG + "_query"]) {
+      const originalQuery = session.query;
+      
+      session.query = function(this: any, queryString: string, params: any[]) {
+        const operation = queryString ? extractOperation(queryString) : undefined;
+        const spanName = operation
+          ? `drizzle.${operation.toLowerCase()}`
+          : "drizzle.query";
+
+        // Start span
+        const span = tracer.startSpan(spanName, { kind: SpanKind.CLIENT });
+        span.setAttribute(SEMATTRS_DB_SYSTEM, dbSystem);
+
+        if (operation) {
+          span.setAttribute(SEMATTRS_DB_OPERATION, operation);
+        }
+
+        if (dbName) {
+          span.setAttribute(SEMATTRS_DB_NAME, dbName);
+        }
+
+        if (captureQueryText && queryString !== undefined) {
+          const sanitized = sanitizeQueryText(queryString, maxQueryTextLength);
+          span.setAttribute(SEMATTRS_DB_STATEMENT, sanitized);
+        }
+
+        if (peerName) {
+          span.setAttribute(SEMATTRS_NET_PEER_NAME, peerName);
+        }
+
+        if (peerPort) {
+          span.setAttribute(SEMATTRS_NET_PEER_PORT, peerPort);
+        }
+
+        const activeContext = trace.setSpan(context.active(), span);
+
+        // Execute the query
+        return context.with(activeContext, () => {
+          try {
+            const result = originalQuery.apply(this, [queryString, params]);
+            return Promise.resolve(result)
+              .then((value) => {
+                finalizeSpan(span);
+                return value;
+              })
+              .catch((error) => {
+                finalizeSpan(span, error);
+                throw error;
+              });
+          } catch (error) {
+            finalizeSpan(span, error);
+            throw error;
+          }
+        });
+      };
+      
+      session[INSTRUMENTED_FLAG + "_query"] = true;
+      instrumented = true;
+    }
+
+    // Instrument transaction method to ensure transaction sessions are also instrumented
+    if (typeof session.transaction === "function" && !session[INSTRUMENTED_FLAG + "_transaction"]) {
+      const originalTransaction = session.transaction;
+      
+      session.transaction = function(this: any, transactionCallback: any, ...restArgs: any[]) {
+        // Wrap the transaction callback to instrument the tx object
+        const wrappedCallback = async function(tx: any) {
+            // Instrument the transaction's session if it has one
+            if (tx && (tx.session || tx._?.session || tx)) {
+              const txSession = tx.session || tx._?.session || tx;
+              
+              // Instrument tx.execute if it exists
+              if (typeof tx.execute === "function" && !tx[INSTRUMENTED_FLAG + "_execute"]) {
+                const originalTxExecute = tx.execute;
+                
+                tx.execute = function(this: any, ...executeArgs: any[]) {
+                  const queryText = extractQueryText(executeArgs[0]);
+                  const operation = queryText ? extractOperation(queryText) : undefined;
+                  const spanName = operation
+                    ? `drizzle.${operation.toLowerCase()}`
+                    : "drizzle.query";
+
+                  // Start span
+                  const span = tracer.startSpan(spanName, { kind: SpanKind.CLIENT });
+                  span.setAttribute(SEMATTRS_DB_SYSTEM, dbSystem);
+                  span.setAttribute("db.transaction", true);
+
+                  if (operation) {
+                    span.setAttribute(SEMATTRS_DB_OPERATION, operation);
+                  }
+
+                  if (dbName) {
+                    span.setAttribute(SEMATTRS_DB_NAME, dbName);
+                  }
+
+                  if (captureQueryText && queryText !== undefined) {
+                    const sanitized = sanitizeQueryText(queryText, maxQueryTextLength);
+                    span.setAttribute(SEMATTRS_DB_STATEMENT, sanitized);
+                  }
+
+                  if (peerName) {
+                    span.setAttribute(SEMATTRS_NET_PEER_NAME, peerName);
+                  }
+
+                  if (peerPort) {
+                    span.setAttribute(SEMATTRS_NET_PEER_PORT, peerPort);
+                  }
+
+                  const activeContext = trace.setSpan(context.active(), span);
+
+                  // Execute the query
+                  return context.with(activeContext, () => {
+                    try {
+                      const result = originalTxExecute.apply(this, executeArgs);
+                      return Promise.resolve(result)
+                        .then((value) => {
+                          finalizeSpan(span);
+                          return value;
+                        })
+                        .catch((error) => {
+                          finalizeSpan(span, error);
+                          throw error;
+                        });
+                    } catch (error) {
+                      finalizeSpan(span, error);
+                      throw error;
+                    }
+                  });
+                };
+                
+                tx[INSTRUMENTED_FLAG + "_execute"] = true;
+              }
+              
+              // Also instrument txSession.prepareQuery if it exists
+              if (typeof txSession.prepareQuery === "function" && !txSession[INSTRUMENTED_FLAG + "_tx"]) {
+                const originalTxPrepareQuery = txSession.prepareQuery;
+                
+                txSession.prepareQuery = function(...prepareArgs: any[]) {
+                  const prepared = originalTxPrepareQuery.apply(this, prepareArgs);
+                  
+                  // Wrap the prepared query's execute method
+                  if (prepared && typeof prepared.execute === "function") {
+                    const originalPreparedExecute = prepared.execute;
+                    
+                    prepared.execute = function(this: any, ...executeArgs: any[]) {
+                      // Extract query information from the query object
+                      const queryObj = prepareArgs[0]; // The query object passed to prepareQuery
+                      const queryText = queryObj?.sql || queryObj?.queryString || extractQueryText(queryObj);
+                      const operation = queryText ? extractOperation(queryText) : undefined;
+                      const spanName = operation
+                        ? `drizzle.${operation.toLowerCase()}`
+                        : "drizzle.query";
+
+                      // Start span
+                      const span = tracer.startSpan(spanName, { kind: SpanKind.CLIENT });
+                      span.setAttribute(SEMATTRS_DB_SYSTEM, dbSystem);
+                      span.setAttribute("db.transaction", true);
+
+                      if (operation) {
+                        span.setAttribute(SEMATTRS_DB_OPERATION, operation);
+                      }
+
+                      if (dbName) {
+                        span.setAttribute(SEMATTRS_DB_NAME, dbName);
+                      }
+
+                      if (captureQueryText && queryText !== undefined) {
+                        const sanitized = sanitizeQueryText(queryText, maxQueryTextLength);
+                        span.setAttribute(SEMATTRS_DB_STATEMENT, sanitized);
+                      }
+
+                      if (peerName) {
+                        span.setAttribute(SEMATTRS_NET_PEER_NAME, peerName);
+                      }
+
+                      if (peerPort) {
+                        span.setAttribute(SEMATTRS_NET_PEER_PORT, peerPort);
+                      }
+
+                      const activeContext = trace.setSpan(context.active(), span);
+
+                      // Execute the prepared query
+                      return context.with(activeContext, () => {
+                        try {
+                          const result = originalPreparedExecute.apply(this, executeArgs);
+                          return Promise.resolve(result)
+                            .then((value) => {
+                              finalizeSpan(span);
+                              return value;
+                            })
+                            .catch((error) => {
+                              finalizeSpan(span, error);
+                              throw error;
+                            });
+                        } catch (error) {
+                          finalizeSpan(span, error);
+                          throw error;
+                        }
+                      });
+                    };
+                  }
+                  
+                  return prepared;
+                };
+                
+                txSession[INSTRUMENTED_FLAG + "_tx"] = true;
+              }
+            }
+            
+            // Call the original callback with the instrumented tx
+            return transactionCallback(tx);
+          };
+        
+        // Call the original transaction with the wrapped callback
+        return originalTransaction.apply(this, [wrappedCallback, ...restArgs]);
+      };
+      
+      session[INSTRUMENTED_FLAG + "_transaction"] = true;
+      instrumented = true;
+    }
+  }
+
+  // Second priority: Try to instrument via $client
+  // This handles the underlying connection pool
+  if (db.$client && !instrumented) {
+    const client = db.$client;
+    // Check if client has query or execute function
+    if (typeof client.query === "function" || typeof client.execute === "function") {
+      instrumentDrizzle(client, config);
+      instrumented = true;
+    }
+  }
+
+  // Third priority: Try to instrument via session.execute as fallback
+  if (db._ && db._.session && typeof db._.session.execute === "function" && !instrumented) {
     const session = db._.session;
     
     // Check if already instrumented
@@ -423,8 +797,8 @@ export function instrumentDrizzleClient<TDb extends DrizzleDbLike>(
     }
 
     const instrumentedExecute: QueryFunction = function instrumented(
-      this: unknown,
-      ...args: unknown[]
+      this: any,
+      ...args: any[]
     ) {
       // Extract query information
       const queryText = extractQueryText(args[0]);
@@ -482,6 +856,12 @@ export function instrumentDrizzleClient<TDb extends DrizzleDbLike>(
 
     session[INSTRUMENTED_FLAG] = true;
     session.execute = instrumentedExecute;
+    instrumented = true;
+  }
+
+  // Mark the db as instrumented if we instrumented anything
+  if (instrumented) {
+    db[INSTRUMENTED_FLAG] = true;
   }
 
   return db;

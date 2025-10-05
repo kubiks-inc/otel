@@ -63,22 +63,27 @@ const users = await db.select().from(usersTable);
 
 ### Option 2: Instrument an Existing Drizzle Client
 
-If you already have a Drizzle database instance or don't have access to the underlying pool, use `instrumentDrizzleClient()`:
+If you already have a Drizzle database instance or don't have access to the underlying pool, use `instrumentDrizzleClient()`. This method instruments the database at the session level, capturing all query operations:
 
 ```typescript
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+// Works with postgres-js (Postgres.js)
+import { drizzle } from "drizzle-orm/postgres-js";
 import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
 import * as schema from "./schema";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const db = drizzle(pool, { schema });
+const db = drizzle(process.env.DATABASE_URL!, { schema });
 
 // Instrument the existing database instance
 instrumentDrizzleClient(db);
 
 // All queries are now traced automatically
 const users = await db.select().from(schema.users);
+// Direct execute calls are also traced
+await db.execute("SELECT * FROM users");
+// Transactions are also traced
+await db.transaction(async (tx) => {
+  await tx.insert(schema.users).values({ name: "John" });
+});
 ```
 
 ### Optional Configuration
@@ -111,16 +116,26 @@ instrumentDrizzleClient(db, {
 
 ### Works with All Drizzle-Supported Databases
 
-This package supports **all databases that Drizzle ORM supports**, including PostgreSQL, MySQL, SQLite, Turso, Neon, PlanetScale, and more.
+This package automatically detects and instruments **all databases that Drizzle ORM supports**. It works by detecting whether your database driver uses a `query` or `execute` method and instrumenting it appropriately. This includes:
+
+- **PostgreSQL** (node-postgres, postgres.js, Neon, Vercel Postgres, etc.)
+- **MySQL** (mysql2, PlanetScale, TiDB, etc.) 
+- **SQLite** (better-sqlite3, LibSQL/Turso, Cloudflare D1, etc.)
+- **And any other Drizzle-supported database**
 
 ```typescript
-// PostgreSQL with node-postgres
+// PostgreSQL with postgres-js (Postgres.js) - use instrumentDrizzleClient
+import { drizzle } from "drizzle-orm/postgres-js";
+const db = drizzle(process.env.DATABASE_URL!);
+instrumentDrizzleClient(db);
+
+// PostgreSQL with node-postgres (pg) - use instrumentDrizzle on pool
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(instrumentDrizzle(pool));
 
-// MySQL with mysql2
+// MySQL with mysql2 (uses 'execute' or 'query' method)
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 const connection = await mysql.createConnection(process.env.DATABASE_URL);
@@ -131,6 +146,12 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 const sqlite = new Database("database.db");
 const db = drizzle(instrumentDrizzle(sqlite, { dbSystem: "sqlite" }));
+
+// LibSQL/Turso (uses 'execute' method)
+import { drizzle } from "drizzle-orm/libsql";
+import { createClient } from "@libsql/client";
+const client = createClient({ url: "...", authToken: "..." });
+const db = drizzle(instrumentDrizzle(client, { dbSystem: "sqlite" }));
 ```
 
 ## What You Get
@@ -138,11 +159,19 @@ const db = drizzle(instrumentDrizzle(sqlite, { dbSystem: "sqlite" }));
 Each database query automatically creates a span with rich telemetry data:
 
 - **Span name**: `drizzle.select`, `drizzle.insert`, `drizzle.update`, etc.
-- **Operation type**: `db.operation` attribute (SELECT, INSERT, UPDATE, DELETE)
+- **Operation type**: `db.operation` attribute (SELECT, INSERT, UPDATE, DELETE, SET)
 - **SQL query text**: Full query statement captured in `db.statement` (configurable)
 - **Database system**: `db.system` attribute (postgresql, mysql, sqlite, etc.)
+- **Transaction tracking**: Transaction queries are marked with `db.transaction` attribute
 - **Error tracking**: Exceptions are recorded with stack traces and proper span status
 - **Performance metrics**: Duration and timing information for every query
+
+### Transaction Support
+
+All queries within transactions are automatically traced, including:
+- RLS (Row Level Security) queries like `SET LOCAL role` and `set_config()`
+- All nested transaction queries
+- Transaction rollbacks and commits
 
 ### Span Attributes
 

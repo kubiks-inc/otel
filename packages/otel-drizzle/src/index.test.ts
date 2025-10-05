@@ -295,6 +295,56 @@ describe("instrumentDrizzle", () => {
     const result = instrumentDrizzle(null as any);
     expect(result).toBeNull();
   });
+
+  it("instruments a client with execute method instead of query", async () => {
+    const client = {
+      execute: vi.fn(() => Promise.resolve({ rows: [{ id: 1 }] })),
+    };
+
+    instrumentDrizzle(client);
+
+    // Execute with SQL object format (used by various drivers)
+    const result = await client.execute({
+      sql: "SELECT * FROM users WHERE id = ?",
+      args: [1],
+    });
+    
+    expect(result).toEqual({ rows: [{ id: 1 }] });
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a recorded span");
+    }
+    
+    expect(span.name).toBe("drizzle.select");
+    expect(span.attributes["db.statement"]).toBe("SELECT * FROM users WHERE id = ?");
+    expect(span.attributes["db.operation"]).toBe("SELECT");
+  });
+
+  it("instruments a client with execute method using string query", async () => {
+    const client = {
+      execute: vi.fn(() => Promise.resolve({ rows: [] })),
+    };
+
+    instrumentDrizzle(client);
+
+    await client.execute("DELETE FROM users");
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a recorded span");
+    }
+    
+    expect(span.name).toBe("drizzle.delete");
+    expect(span.attributes["db.operation"]).toBe("DELETE");
+    expect(span.attributes["db.statement"]).toBe("DELETE FROM users");
+  });
 });
 
 describe("instrumentDrizzleClient", () => {
@@ -315,7 +365,35 @@ describe("instrumentDrizzleClient", () => {
     trace.disable();
   });
 
-  it("instruments a db with $client property", async () => {
+  it("instruments a db with session.prepareQuery method", async () => {
+    const mockPreparedQuery = {
+      execute: vi.fn(() => Promise.resolve({ rows: [{ id: 1 }] })),
+    };
+    
+    const mockSession = {
+      prepareQuery: vi.fn(() => mockPreparedQuery),
+    };
+    
+    const mockDb = {
+      session: mockSession,
+      select: vi.fn(),
+    };
+
+    const instrumented = instrumentDrizzleClient(mockDb);
+    expect(instrumented).toBe(mockDb);
+
+    // Simulate what happens when db.select().from() is called
+    const prepared = mockSession.prepareQuery({ sql: "SELECT * FROM users" });
+    const result = await prepared.execute();
+    expect(result).toEqual({ rows: [{ id: 1 }] });
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0]?.name).toBe("drizzle.select");
+    expect(spans[0]?.attributes["db.statement"]).toBe("SELECT * FROM users");
+  });
+
+  it("instruments a db with $client property as fallback", async () => {
     const mockClient = {
       query: vi.fn(() => Promise.resolve({ rows: [{ id: 1 }] })),
     };
@@ -323,6 +401,7 @@ describe("instrumentDrizzleClient", () => {
     const mockDb = {
       $client: mockClient,
       select: vi.fn(),
+      // No direct execute method
     };
 
     const instrumented = instrumentDrizzleClient(mockDb);
@@ -361,6 +440,26 @@ describe("instrumentDrizzleClient", () => {
     expect(spans).toHaveLength(1);
     expect(spans[0]?.name).toBe("drizzle.insert");
     expect(spans[0]?.attributes["db.operation"]).toBe("INSERT");
+  });
+
+  it("instruments session.query method", async () => {
+    const mockSession = {
+      query: vi.fn(() => Promise.resolve({ rows: [] })),
+    };
+    
+    const mockDb = {
+      session: mockSession,
+    };
+
+    instrumentDrizzleClient(mockDb);
+
+    // Direct query through session
+    await mockSession.query("INSERT INTO users (name) VALUES ($1)", ["John"]);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0]?.name).toBe("drizzle.insert");
+    expect(spans[0]?.attributes["db.statement"]).toBe("INSERT INTO users (name) VALUES ($1)");
   });
 
   it("only instruments once when called multiple times", async () => {
@@ -450,6 +549,40 @@ describe("instrumentDrizzleClient", () => {
     const spans = exporter.getFinishedSpans();
     expect(spans).toHaveLength(1);
     expect(spans[0]?.status.code).toBe(SpanStatusCode.ERROR);
+  });
+
+  it("instruments transaction execute calls", async () => {
+    let txObject: any;
+    
+    const mockSession = {
+      transaction: vi.fn(async (callback: any) => {
+        // Create a mock transaction object
+        txObject = {
+          execute: vi.fn(() => Promise.resolve({ rows: [] })),
+        };
+        return callback(txObject);
+      }),
+    };
+    
+    const mockDb = {
+      session: mockSession,
+    };
+
+    instrumentDrizzleClient(mockDb);
+
+    // Execute a transaction with RLS queries
+    await mockSession.transaction(async (tx: any) => {
+      await tx.execute({ sql: "SET LOCAL role org_role" });
+      await tx.execute({ sql: "SELECT set_config('request.org_id', $1, true)", params: ["org123"] });
+    });
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(2);
+    expect(spans[0]?.name).toBe("drizzle.set");
+    expect(spans[0]?.attributes["db.statement"]).toBe("SET LOCAL role org_role");
+    expect(spans[0]?.attributes["db.transaction"]).toBe(true);
+    expect(spans[1]?.name).toBe("drizzle.select");
+    expect(spans[1]?.attributes["db.transaction"]).toBe(true);
   });
 
   it("only instruments session once when called multiple times", () => {
