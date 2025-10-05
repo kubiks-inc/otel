@@ -16,6 +16,11 @@ import {
   SEMATTRS_RESEND_RESOURCE_ID,
   SEMATTRS_RESEND_TARGET,
   SEMATTRS_RESEND_TEMPLATE_ID,
+  SEMATTRS_RESEND_TO_ADDRESSES,
+  SEMATTRS_RESEND_CC_ADDRESSES,
+  SEMATTRS_RESEND_BCC_ADDRESSES,
+  SEMATTRS_RESEND_FROM,
+  SEMATTRS_RESEND_SUBJECT,
 } from "./index";
 
 describe("instrumentResend", () => {
@@ -72,7 +77,7 @@ describe("instrumentResend", () => {
     instrumentResend(resend);
 
     const payload = {
-      to: ["user@example.com", { email: "second@example.com" }],
+      to: ["user@example.com", "second@example.com"],
       template_id: "tmpl_123",
     };
 
@@ -96,6 +101,7 @@ describe("instrumentResend", () => {
     expect(span.attributes[SEMATTRS_RESEND_MESSAGE_COUNT]).toBe(1);
     expect(span.attributes[SEMATTRS_RESEND_RECIPIENT_COUNT]).toBe(2);
     expect(span.attributes[SEMATTRS_RESEND_TEMPLATE_ID]).toBe("tmpl_123");
+    expect(span.attributes[SEMATTRS_RESEND_TO_ADDRESSES]).toBe("user@example.com, second@example.com");
     expect(span.status.code).toBe(SpanStatusCode.OK);
   });
 
@@ -186,5 +192,91 @@ describe("instrumentResend", () => {
 
     const spans = exporter.getFinishedSpans();
     expect(spans).toHaveLength(0);
+  });
+
+  it("captures email addresses from all recipient fields", async () => {
+    const resend = createMockResend();
+    instrumentResend(resend);
+
+    const payload = {
+      to: ["to1@example.com", "to2@example.com", "to3@example.com"],
+      cc: ["cc1@example.com", "cc2@example.com"],
+      bcc: "bcc@example.com",
+      subject: "Test Email",
+      from: "sender@example.com",
+      text: "Test content",
+    };
+
+    await resend.emails.send(payload);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_RESEND_RECIPIENT_COUNT]).toBe(6);
+    expect(span.attributes[SEMATTRS_RESEND_TO_ADDRESSES]).toBe("to1@example.com, to2@example.com, to3@example.com");
+    expect(span.attributes[SEMATTRS_RESEND_CC_ADDRESSES]).toBe("cc1@example.com, cc2@example.com");
+    expect(span.attributes[SEMATTRS_RESEND_BCC_ADDRESSES]).toBe("bcc@example.com");
+    expect(span.attributes[SEMATTRS_RESEND_SUBJECT]).toBe("Test Email");
+    expect(span.attributes[SEMATTRS_RESEND_FROM]).toBe("sender@example.com");
+  });
+
+  it("handles missing recipient fields gracefully", async () => {
+    const resend = createMockResend();
+    instrumentResend(resend);
+
+    const payload = {
+      to: "single@example.com",
+    };
+
+    await resend.emails.send(payload);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_RESEND_RECIPIENT_COUNT]).toBe(1);
+    expect(span.attributes[SEMATTRS_RESEND_TO_ADDRESSES]).toBe("single@example.com");
+    expect(span.attributes[SEMATTRS_RESEND_CC_ADDRESSES]).toBeUndefined();
+    expect(span.attributes[SEMATTRS_RESEND_BCC_ADDRESSES]).toBeUndefined();
+  });
+
+  it("handles mixed string and array formats correctly", async () => {
+    const resend = createMockResend();
+    instrumentResend(resend);
+
+    const payload = {
+      to: "single@example.com",
+      cc: ["cc1@example.com", "cc2@example.com"],
+      bcc: ["bcc1@example.com"],
+      from: "noreply@example.com",
+      subject: "Mixed Format Test",
+      text: "Test",
+    };
+
+    await resend.emails.send(payload);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_RESEND_TO_ADDRESSES]).toBe("single@example.com");
+    expect(span.attributes[SEMATTRS_RESEND_CC_ADDRESSES]).toBe("cc1@example.com, cc2@example.com");
+    expect(span.attributes[SEMATTRS_RESEND_BCC_ADDRESSES]).toBe("bcc1@example.com");
+    expect(span.attributes[SEMATTRS_RESEND_RECIPIENT_COUNT]).toBe(4);
+    expect(span.attributes[SEMATTRS_RESEND_FROM]).toBe("noreply@example.com");
+    expect(span.attributes[SEMATTRS_RESEND_SUBJECT]).toBe("Mixed Format Test");
   });
 });

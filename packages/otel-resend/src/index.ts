@@ -6,6 +6,7 @@ import {
   type Span,
   type Tracer,
 } from "@opentelemetry/api";
+import type { CreateEmailOptions } from "resend";
 
 const DEFAULT_TRACER_NAME = "@kubiks/otel-resend";
 const INSTRUMENTED_FLAG = "__kubiksOtelResendInstrumented" as const;
@@ -22,6 +23,11 @@ export const SEMATTRS_RESEND_SEGMENT_ID = "resend.segment_id" as const;
 export const SEMATTRS_RESEND_AUDIENCE_ID = "resend.audience_id" as const;
 export const SEMATTRS_RESEND_RECIPIENT_COUNT = "resend.recipient_count" as const;
 export const SEMATTRS_RESEND_RESOURCE_ID = "resend.resource_id" as const;
+export const SEMATTRS_RESEND_TO_ADDRESSES = "resend.to_addresses" as const;
+export const SEMATTRS_RESEND_CC_ADDRESSES = "resend.cc_addresses" as const;
+export const SEMATTRS_RESEND_BCC_ADDRESSES = "resend.bcc_addresses" as const;
+export const SEMATTRS_RESEND_FROM = "resend.from" as const;
+export const SEMATTRS_RESEND_SUBJECT = "resend.subject" as const;
 
 export interface InstrumentResendConfig {
   tracerName?: string;
@@ -86,7 +92,7 @@ function buildBaseAttributes(
   return attributes;
 }
 
-function countRecipients(value: unknown): number {
+function countRecipients(value: string | string[] | undefined): number {
   if (!value) {
     return 0;
   }
@@ -94,28 +100,23 @@ function countRecipients(value: unknown): number {
     return value.trim() ? 1 : 0;
   }
   if (Array.isArray(value)) {
-    return value.reduce((count, item) => count + countRecipients(item), 0);
-  }
-  if (typeof value === "object") {
-    // Array-like or iterable structures
-    if (typeof (value as { length?: number }).length === "number") {
-      return (value as { length: number }).length;
-    }
-    if (Symbol.iterator in (value as object)) {
-      let count = 0;
-      for (const item of value as Iterable<unknown>) {
-        count += countRecipients(item);
-      }
-      return count;
-    }
-    if (
-      typeof (value as { email?: unknown }).email === "string" ||
-      typeof (value as { address?: unknown }).address === "string"
-    ) {
-      return 1;
-    }
+    return value.filter(email => typeof email === "string" && email.trim()).length;
   }
   return 0;
+}
+
+function extractEmailAddresses(value: string | string[] | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.filter(email => typeof email === "string" && email.trim()).map(email => email.trim());
+  }
+  return [];
 }
 
 function annotateRequest(
@@ -133,14 +134,64 @@ function annotateRequest(
     return;
   }
 
-  const data = payload as Record<string, unknown>;
+  // Check if this is an email send operation
+  if (path[0] === "emails" || path[0] === "batch") {
+    // Try to cast to CreateEmailOptions for better type safety
+    const data = payload as Partial<CreateEmailOptions>;
 
-  const recipientCount =
-    countRecipients(data.to) + countRecipients(data.cc) + countRecipients(data.bcc);
-  if (recipientCount > 0) {
-    span.setAttribute(SEMATTRS_RESEND_RECIPIENT_COUNT, recipientCount);
+    // Extract and set email addresses using proper types
+    const toAddresses = extractEmailAddresses(data.to);
+    if (toAddresses.length > 0) {
+      span.setAttribute(SEMATTRS_RESEND_TO_ADDRESSES, toAddresses.join(", "));
+    }
+
+    const ccAddresses = extractEmailAddresses(data.cc);
+    if (ccAddresses.length > 0) {
+      span.setAttribute(SEMATTRS_RESEND_CC_ADDRESSES, ccAddresses.join(", "));
+    }
+
+    const bccAddresses = extractEmailAddresses(data.bcc);
+    if (bccAddresses.length > 0) {
+      span.setAttribute(SEMATTRS_RESEND_BCC_ADDRESSES, bccAddresses.join(", "));
+    }
+
+    // Count recipients
+    const recipientCount = toAddresses.length + ccAddresses.length + bccAddresses.length;
+    if (recipientCount > 0) {
+      span.setAttribute(SEMATTRS_RESEND_RECIPIENT_COUNT, recipientCount);
+    }
+
+    // Handle other email-specific attributes
+    if (data.subject) {
+      span.setAttribute(SEMATTRS_RESEND_SUBJECT, data.subject);
+    }
+
+    if (data.from) {
+      span.setAttribute(SEMATTRS_RESEND_FROM, data.from);
+    }
+  } else {
+    // For non-email operations, use generic handling
+    const data = payload as Record<string, unknown>;
+    
+    // Only count if the fields exist and are the right type
+    let recipientCount = 0;
+    if (typeof data.to === "string" || Array.isArray(data.to)) {
+      recipientCount += countRecipients(data.to as string | string[]);
+    }
+    if (typeof data.cc === "string" || Array.isArray(data.cc)) {
+      recipientCount += countRecipients(data.cc as string | string[]);
+    }
+    if (typeof data.bcc === "string" || Array.isArray(data.bcc)) {
+      recipientCount += countRecipients(data.bcc as string | string[]);
+    }
+    if (recipientCount > 0) {
+      span.setAttribute(SEMATTRS_RESEND_RECIPIENT_COUNT, recipientCount);
+    }
   }
 
+  // Handle generic attributes that apply to all operations
+  const data = payload as Record<string, unknown>;
+  
   const templateId =
     (typeof data.template_id === "string" && data.template_id) ||
     (typeof data.templateId === "string" && data.templateId) ||
