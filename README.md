@@ -14,12 +14,11 @@ Our goal is to bring the TypeScript ecosystem the observability tools it’s bee
 
 - [`@kubiks/otel-better-auth`](./packages/otel-better-auth/README.md)
 - [`@kubiks/otel-drizzle`](./packages/otel-drizzle/README.md)
+- [`@kubiks/otel-resend`](./packages/otel-resend/README.md)
 
 ---
 
 ## Coming soon
-
-- [Resend](https://resend.com/)
 - [Stripe](https://stripe.com/)
 - [Polar.sh](https://polar.sh/)
 - [Autumn](https://useautumn.com/)
