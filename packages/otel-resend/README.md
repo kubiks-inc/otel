@@ -35,10 +35,7 @@ needed. Every SDK call creates a client span with useful attributes.
 
 ## What Gets Traced
 
-- All top-level Resend client methods (e.g. `resend.ping`)
-- Nested resource methods such as `resend.emails.send`, `resend.emails.batch`,
-  `resend.domains.create`, `resend.apiKeys.create`, and custom resources
-- Both async and sync methods defined on resource instances or their prototypes
+This instrumentation specifically wraps the `resend.emails.send` method (and its alias `resend.emails.create`), creating a single clean span for each email send operation.
 
 ## Span Attributes
 
@@ -47,35 +44,32 @@ Each span includes:
 | Attribute | Description | Example |
 | --- | --- | --- |
 | `messaging.system` | Constant value `resend` | `resend` |
-| `messaging.operation` | Operation derived from the method name | `send`, `create`, `list` |
-| `resend.resource` | Top-level resource name | `emails`, `domains` |
-| `resend.target` | Fully-qualified target (resource + method) | `emails.send` |
-| `resend.recipient_count` | Total recipients detected in the request payload | `3` |
-| `resend.template_id` | Template referenced in the request (when present) | `tmpl_123` |
-| `resend.message_id` | Message ID returned by email operations | `email_123` |
-| `resend.message_count` | How many message IDs were returned | `2` |
-| `resend.resource_id` | Identifier returned by non-email resources | `domain_456` |
+| `messaging.operation` | Operation type | `send` |
+| `resend.resource` | Resource name | `emails` |
+| `resend.target` | Full operation target | `emails.send` |
+| `resend.to_addresses` | Comma-separated TO addresses | `user@example.com, another@example.com` |
+| `resend.cc_addresses` | Comma-separated CC addresses (if present) | `cc@example.com` |
+| `resend.bcc_addresses` | Comma-separated BCC addresses (if present) | `bcc@example.com` |
+| `resend.recipient_count` | Total number of recipients | `3` |
+| `resend.from` | Sender email address | `noreply@example.com` |
+| `resend.subject` | Email subject | `Welcome to our service` |
+| `resend.template_id` | Template ID (if using templates) | `tmpl_123` |
+| `resend.message_id` | Message ID returned by Resend | `email_123` |
+| `resend.message_count` | Number of messages sent (always 1 for single sends) | `1` |
 
-Sensitive request payloads are never recorded—only counts and identifiers that
-Resend already exposes.
+The instrumentation captures email addresses and metadata to help with debugging and monitoring, while avoiding sensitive email content.
 
 ## Configuration
 
 ```ts
 instrumentResend(resend, {
   tracerName: "my-service",
-  captureRequestMetadata: true,
-  captureResponseMetadata: true,
-  shouldInstrument: (path, method) => !(path[0] === "emails" && method === "list"),
+  tracer: myCustomTracer,  // optional: bring your own tracer
 });
 ```
 
-- `tracerName` / `tracer`: reuse an existing tracer if you have one.
-- `captureRequestMetadata`: toggle attributes derived from the request payload
-  (recipient counts, template IDs). Enabled by default.
-- `captureResponseMetadata`: toggle attributes derived from the response
-  (message IDs, resource IDs). Enabled by default.
-- `shouldInstrument`: skip specific methods programmatically.
+- `tracerName`: Custom name for the tracer (defaults to `@kubiks/otel-resend`)
+- `tracer`: Use an existing tracer instance instead of creating a new one
 
 ## License
 

@@ -5,6 +5,7 @@ import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
+import type { Resend } from "resend";
 import {
   instrumentResend,
   SEMATTRS_MESSAGING_OPERATION,
@@ -13,7 +14,6 @@ import {
   SEMATTRS_RESEND_MESSAGE_ID,
   SEMATTRS_RESEND_RECIPIENT_COUNT,
   SEMATTRS_RESEND_RESOURCE,
-  SEMATTRS_RESEND_RESOURCE_ID,
   SEMATTRS_RESEND_TARGET,
   SEMATTRS_RESEND_TEMPLATE_ID,
   SEMATTRS_RESEND_TO_ADDRESSES,
@@ -41,48 +41,37 @@ describe("instrumentResend", () => {
     trace.disable();
   });
 
-  const createMockResend = () => {
-    class EmailsResource {
-      async send(payload: Record<string, unknown>) {
-        return { id: "email_123", payload };
-      }
-
-      async list() {
-        return { data: [{ id: "email_1" }, { id: "email_2" }] };
-      }
-
-      fail() {
-        throw new Error("boom");
-      }
-    }
-
-    class DomainsResource {
-      async create() {
-        return { id: "domain_123" };
-      }
-    }
-
-    return {
-      emails: new EmailsResource(),
-      domains: new DomainsResource(),
-      apiKeys: {
-        create: vi.fn(async () => ({ id: "key_abc" })),
+  const createMockResend = (): Resend => {
+    const mockResend = {
+      emails: {
+        send: vi.fn(async (payload: any) => ({ 
+          data: { id: "email_123" }, 
+          error: null 
+        })),
+        create: vi.fn(async (payload: any) => ({ 
+          data: { id: "email_123" }, 
+          error: null 
+        })),
       },
-      ping: vi.fn(() => "pong"),
-    };
+    } as unknown as Resend;
+
+    return mockResend;
   };
 
-  it("wraps methods and records spans", async () => {
+  it("wraps emails.send and records spans", async () => {
     const resend = createMockResend();
     instrumentResend(resend);
 
     const payload = {
       to: ["user@example.com", "second@example.com"],
+      from: "sender@example.com",
+      subject: "Test Email",
+      text: "Hello",
       template_id: "tmpl_123",
     };
 
     const response = await resend.emails.send(payload);
-    expect(response.id).toBe("email_123");
+    expect(response.data?.id).toBe("email_123");
 
     const spans = exporter.getFinishedSpans();
     expect(spans).toHaveLength(1);
@@ -100,56 +89,22 @@ describe("instrumentResend", () => {
     expect(span.attributes[SEMATTRS_RESEND_MESSAGE_ID]).toBe("email_123");
     expect(span.attributes[SEMATTRS_RESEND_MESSAGE_COUNT]).toBe(1);
     expect(span.attributes[SEMATTRS_RESEND_RECIPIENT_COUNT]).toBe(2);
-    expect(span.attributes[SEMATTRS_RESEND_TEMPLATE_ID]).toBe("tmpl_123");
     expect(span.attributes[SEMATTRS_RESEND_TO_ADDRESSES]).toBe("user@example.com, second@example.com");
-    expect(span.status.code).toBe(SpanStatusCode.OK);
-  });
-
-  it("records spans for prototype methods", async () => {
-    const resend = createMockResend();
-    instrumentResend(resend);
-
-    await resend.domains.create();
-
-    const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(1);
-
-    const span = spans[0];
-    if (!span) {
-      throw new Error("Expected a span to be recorded");
-    }
-
-    expect(span.name).toBe("resend.domains.create");
-    expect(span.attributes[SEMATTRS_RESEND_RESOURCE]).toBe("domains");
-    expect(span.attributes[SEMATTRS_RESEND_MESSAGE_ID]).toBeUndefined();
-    expect(span.attributes[SEMATTRS_RESEND_RESOURCE_ID]).toBe("domain_123");
-    expect(span.status.code).toBe(SpanStatusCode.OK);
-  });
-
-  it("handles synchronous functions", () => {
-    const resend = createMockResend();
-    instrumentResend(resend);
-
-    const result = resend.ping();
-    expect(result).toBe("pong");
-
-    const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(1);
-
-    const span = spans[0];
-    if (!span) {
-      throw new Error("Expected a span to be recorded");
-    }
-
-    expect(span.name).toBe("resend.ping");
+    expect(span.attributes[SEMATTRS_RESEND_TEMPLATE_ID]).toBe("tmpl_123");
+    expect(span.attributes[SEMATTRS_RESEND_FROM]).toBe("sender@example.com");
+    expect(span.attributes[SEMATTRS_RESEND_SUBJECT]).toBe("Test Email");
     expect(span.status.code).toBe(SpanStatusCode.OK);
   });
 
   it("captures errors and marks span status", async () => {
     const resend = createMockResend();
+    resend.emails.send = vi.fn().mockRejectedValue(new Error("boom"));
+    
     instrumentResend(resend);
 
-    await expect(async () => resend.emails.fail()).rejects.toThrowError("boom");
+    await expect(async () => 
+      resend.emails.send({ to: "test@example.com", from: "sender@example.com", subject: "Test", text: "Test" })
+    ).rejects.toThrowError("boom");
 
     const spans = exporter.getFinishedSpans();
     expect(spans).toHaveLength(1);
@@ -170,28 +125,15 @@ describe("instrumentResend", () => {
     const second = instrumentResend(first);
 
     expect(first).toBe(second);
-    expect(first.emails.send).toBe(second.emails.send);
 
-    await second.emails.send({});
-
-    expect(exporter.getFinishedSpans()).toHaveLength(1);
-  });
-
-  it("respects shouldInstrument filter", async () => {
-    const resend = createMockResend();
-    instrumentResend(resend, {
-      shouldInstrument: (path, methodName) => {
-        if (path[0] === "emails" && methodName === "list") {
-          return false;
-        }
-        return true;
-      },
+    await second.emails.send({ 
+      to: "test@example.com", 
+      from: "sender@example.com", 
+      subject: "Test", 
+      text: "Test" 
     });
 
-    await resend.emails.list();
-
-    const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(0);
+    expect(exporter.getFinishedSpans()).toHaveLength(1);
   });
 
   it("captures email addresses from all recipient fields", async () => {
@@ -231,6 +173,9 @@ describe("instrumentResend", () => {
 
     const payload = {
       to: "single@example.com",
+      from: "sender@example.com",
+      subject: "Test",
+      text: "Test",
     };
 
     await resend.emails.send(payload);
@@ -278,5 +223,32 @@ describe("instrumentResend", () => {
     expect(span.attributes[SEMATTRS_RESEND_RECIPIENT_COUNT]).toBe(4);
     expect(span.attributes[SEMATTRS_RESEND_FROM]).toBe("noreply@example.com");
     expect(span.attributes[SEMATTRS_RESEND_SUBJECT]).toBe("Mixed Format Test");
+  });
+
+  it("also instruments emails.create as an alias", async () => {
+    const resend = createMockResend();
+    instrumentResend(resend);
+
+    const payload = {
+      to: "user@example.com",
+      from: "sender@example.com",
+      subject: "Test",
+      text: "Test",
+    };
+
+    // Use create instead of send
+    await resend.emails.create(payload);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    // Should still show as emails.send since create is just an alias
+    expect(span.name).toBe("resend.emails.send");
+    expect(span.attributes[SEMATTRS_RESEND_TARGET]).toBe("emails.send");
   });
 });
