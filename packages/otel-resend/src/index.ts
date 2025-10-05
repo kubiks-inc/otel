@@ -21,7 +21,8 @@ export const SEMATTRS_RESEND_MESSAGE_COUNT = "resend.message_count" as const;
 export const SEMATTRS_RESEND_TEMPLATE_ID = "resend.template_id" as const;
 export const SEMATTRS_RESEND_SEGMENT_ID = "resend.segment_id" as const;
 export const SEMATTRS_RESEND_AUDIENCE_ID = "resend.audience_id" as const;
-export const SEMATTRS_RESEND_RECIPIENT_COUNT = "resend.recipient_count" as const;
+export const SEMATTRS_RESEND_RECIPIENT_COUNT =
+  "resend.recipient_count" as const;
 export const SEMATTRS_RESEND_RESOURCE_ID = "resend.resource_id" as const;
 export const SEMATTRS_RESEND_TO_ADDRESSES = "resend.to_addresses" as const;
 export const SEMATTRS_RESEND_CC_ADDRESSES = "resend.cc_addresses" as const;
@@ -47,7 +48,9 @@ function extractEmailAddresses(value: string | string[] | undefined): string[] {
     return trimmed ? [trimmed] : [];
   }
   if (Array.isArray(value)) {
-    return value.filter(email => typeof email === "string" && email.trim()).map(email => email.trim());
+    return value
+      .filter((email) => typeof email === "string" && email.trim())
+      .map((email) => email.trim());
   }
   return [];
 }
@@ -78,7 +81,8 @@ function annotateEmailSpan(span: Span, payload: CreateEmailOptions): void {
   }
 
   // Count recipients
-  const recipientCount = toAddresses.length + ccAddresses.length + bccAddresses.length;
+  const recipientCount =
+    toAddresses.length + ccAddresses.length + bccAddresses.length;
   if (recipientCount > 0) {
     span.setAttribute(SEMATTRS_RESEND_RECIPIENT_COUNT, recipientCount);
   }
@@ -93,13 +97,19 @@ function annotateEmailSpan(span: Span, payload: CreateEmailOptions): void {
   }
 
   // Handle template IDs (support both formats for compatibility)
-  const templateId = (payload as any).template_id || (payload as any).templateId || (payload as any).template;
+  const templateId =
+    (payload as any).template_id ||
+    (payload as any).templateId ||
+    (payload as any).template;
   if (templateId && typeof templateId === "string") {
     span.setAttribute(SEMATTRS_RESEND_TEMPLATE_ID, templateId);
   }
 }
 
-function annotateEmailResponse(span: Span, response: CreateEmailResponse): void {
+function annotateEmailResponse(
+  span: Span,
+  response: CreateEmailResponse,
+): void {
   if (response.data?.id) {
     span.setAttribute(SEMATTRS_RESEND_MESSAGE_ID, response.data.id);
     span.setAttribute(SEMATTRS_RESEND_MESSAGE_COUNT, 1);
@@ -120,7 +130,10 @@ function finalizeSpan(span: Span, error?: unknown): void {
   span.end();
 }
 
-export function instrumentResend(client: Resend, config?: InstrumentResendConfig): Resend {
+export function instrumentResend(
+  client: Resend,
+  config?: InstrumentResendConfig,
+): Resend {
   // Check if already instrumented
   if ((client as InstrumentedResend)[INSTRUMENTED_FLAG]) {
     return client;
@@ -129,12 +142,14 @@ export function instrumentResend(client: Resend, config?: InstrumentResendConfig
   const tracerName = config?.tracerName ?? DEFAULT_TRACER_NAME;
   const tracer = config?.tracer ?? trace.getTracer(tracerName);
 
-  // Save the original send method
   const originalSend = client.emails.send.bind(client.emails);
+  const originalCreate = client.emails.create
+    ? client.emails.create.bind(client.emails)
+    : originalSend;
 
-  // Replace the send method with our instrumented version
-  client.emails.send = async function instrumentedSend(
-    payload: CreateEmailOptions
+  // Create the instrumented function for send
+  const instrumentedSendFunction = async function instrumentedSend(
+    payload: CreateEmailOptions,
   ): Promise<CreateEmailResponse> {
     const span = tracer.startSpan("resend.emails.send", {
       kind: SpanKind.CLIENT,
@@ -148,14 +163,16 @@ export function instrumentResend(client: Resend, config?: InstrumentResendConfig
 
     try {
       // Call the original method within the active context
-      const response = await context.with(activeContext, () => originalSend(payload));
-      
+      const response = await context.with(activeContext, () =>
+        originalSend(payload),
+      );
+
       // Annotate with response data
       annotateEmailResponse(span, response);
-      
+
       // Mark as successful
       finalizeSpan(span);
-      
+
       return response;
     } catch (error) {
       // Mark as failed
@@ -164,8 +181,43 @@ export function instrumentResend(client: Resend, config?: InstrumentResendConfig
     }
   };
 
-  // Also wrap the create method (it's an alias for send)
-  client.emails.create = client.emails.send;
+  // Create the instrumented function for create (always reports as send since it's an alias)
+  const instrumentedCreateFunction = async function instrumentedCreate(
+    payload: CreateEmailOptions,
+  ): Promise<CreateEmailResponse> {
+    const span = tracer.startSpan("resend.emails.send", {
+      kind: SpanKind.CLIENT,
+    });
+
+    // Annotate span with email details
+    annotateEmailSpan(span, payload);
+
+    // Set the span as active
+    const activeContext = trace.setSpan(context.active(), span);
+
+    try {
+      // Call the original create method within the active context
+      const response = await context.with(activeContext, () =>
+        originalCreate(payload),
+      );
+
+      // Annotate with response data
+      annotateEmailResponse(span, response);
+
+      // Mark as successful
+      finalizeSpan(span);
+
+      return response;
+    } catch (error) {
+      // Mark as failed
+      finalizeSpan(span, error);
+      throw error;
+    }
+  };
+
+  // Replace both methods with our instrumented versions
+  client.emails.send = instrumentedSendFunction;
+  client.emails.create = instrumentedCreateFunction;
 
   // Mark as instrumented
   (client as InstrumentedResend)[INSTRUMENTED_FLAG] = true;
