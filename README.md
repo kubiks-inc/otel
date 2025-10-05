@@ -1,6 +1,6 @@
 # The only Telemetry SDK you’ll ever need for TypeScript observability.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=kubiks-inc/otel&type=Date)](https://star-history.com/#kubiks-inc/otel&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=kubiks-inc/otel&type=Date&t=2)](https://www.star-history.com/#kubiks-inc/otel&Date)
 
 ## Vision
 

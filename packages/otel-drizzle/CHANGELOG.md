@@ -1,5 +1,11 @@
 # @kubiks/otel-drizzle
 
+## 2.1.0
+
+### Minor Changes
+
+- [#15](https://github.com/kubiks-inc/otel/pull/15) [`50f189a`](https://github.com/kubiks-inc/otel/commit/50f189aac1629c6197668b2da4d98cd259cd5db1) Thanks [@alex-holovach](https://github.com/alex-holovach)! - Added instrumentDrizzleClient func to instrument any drizzle instance
+
 ## 2.0.3
 
 ### Patch Changes

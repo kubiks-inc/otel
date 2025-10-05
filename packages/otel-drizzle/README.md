@@ -42,70 +42,167 @@ Works with any observability platform that supports OpenTelemetry including:
 
 ## Usage
 
-Simply wrap your database connection pool with `instrumentDrizzle()` before passing it to Drizzle:
+### Instrument Your Drizzle Database (Recommended)
+
+Use `instrumentDrizzleClient()` to add tracing to your Drizzle database instance. This is the simplest and most straightforward approach:
 
 ```typescript
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
-import { instrumentDrizzle } from "@kubiks/otel-drizzle";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const instrumentedPool = instrumentDrizzle(pool);
-const db = drizzle(instrumentedPool);
+// Create your Drizzle database instance as usual
+const db = drizzle(process.env.DATABASE_URL!);
+
+// Add instrumentation with a single line
+instrumentDrizzleClient(db);
 
 // That's it! All queries are now traced automatically
 const users = await db.select().from(usersTable);
 ```
 
-### Optional Configuration
+### Database-Specific Examples
+
+#### PostgreSQL
 
 ```typescript
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const instrumentedPool = instrumentDrizzle(pool, {
-  dbSystem: "postgresql", // Database type (default: 'postgresql')
-  dbName: "myapp", // Database name for spans
-  captureQueryText: true, // Include SQL in traces (default: true)
-  maxQueryTextLength: 1000, // Max SQL length (default: 1000)
-  peerName: "db.example.com", // Database server hostname
-  peerPort: 5432, // Database server port
+// PostgreSQL with postgres.js
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
+
+// Using connection string directly
+const db = drizzle(process.env.DATABASE_URL!);
+instrumentDrizzleClient(db, { dbSystem: "postgresql" });
+
+// Or with a client instance
+const queryClient = postgres(process.env.DATABASE_URL!);
+const db = drizzle({ client: queryClient });
+instrumentDrizzleClient(db, {
+  dbSystem: "postgresql",
+  dbName: "myapp",
+  peerName: "db.example.com",
+  peerPort: 5432,
 });
-const db = drizzle(instrumentedPool);
 ```
 
-### Works with All Drizzle-Supported Databases
-
-This package supports **all databases that Drizzle ORM supports**, including PostgreSQL, MySQL, SQLite, Turso, Neon, PlanetScale, and more.
-
 ```typescript
-// PostgreSQL with node-postgres
+// PostgreSQL with node-postgres (pg)
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const db = drizzle(instrumentDrizzle(pool));
+import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
 
+// Using connection string directly
+const db = drizzle(process.env.DATABASE_URL!);
+instrumentDrizzleClient(db, { dbSystem: "postgresql" });
+
+// Or with a pool instance
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = drizzle({ client: pool });
+instrumentDrizzleClient(db, { dbSystem: "postgresql" });
+```
+
+#### MySQL
+
+```typescript
 // MySQL with mysql2
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
-const connection = await mysql.createConnection(process.env.DATABASE_URL);
-const db = drizzle(instrumentDrizzle(connection, { dbSystem: "mysql" }));
+import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
 
+// Using connection string directly
+const db = drizzle(process.env.DATABASE_URL!);
+instrumentDrizzleClient(db, { dbSystem: "mysql" });
+
+// Or with a connection instance
+const connection = await mysql.createConnection({
+  host: "localhost",
+  user: "root",
+  database: "mydb",
+  // ... other connection options
+});
+const db = drizzle({ client: connection });
+instrumentDrizzleClient(db, {
+  dbSystem: "mysql",
+  dbName: "mydb",
+  peerName: "localhost",
+  peerPort: 3306,
+});
+```
+
+#### SQLite
+
+```typescript
 // SQLite with better-sqlite3
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
-const sqlite = new Database("database.db");
-const db = drizzle(instrumentDrizzle(sqlite, { dbSystem: "sqlite" }));
+import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
+
+// Using file path directly
+const db = drizzle("sqlite.db");
+instrumentDrizzleClient(db, { dbSystem: "sqlite" });
+
+// Or with a Database instance
+const sqlite = new Database("sqlite.db");
+const db = drizzle({ client: sqlite });
+instrumentDrizzleClient(db, { dbSystem: "sqlite" });
 ```
+
+```typescript
+// SQLite with LibSQL/Turso
+import { drizzle } from "drizzle-orm/libsql";
+import { createClient } from "@libsql/client";
+import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
+
+// Using connection config directly
+const db = drizzle({
+  connection: {
+    url: process.env.DATABASE_URL!,
+    authToken: process.env.DATABASE_AUTH_TOKEN,
+  }
+});
+instrumentDrizzleClient(db, { dbSystem: "sqlite" });
+
+// Or with a client instance
+const client = createClient({
+  url: process.env.DATABASE_URL!,
+  authToken: process.env.DATABASE_AUTH_TOKEN,
+});
+const db = drizzle({ client });
+instrumentDrizzleClient(db, { dbSystem: "sqlite" });
+```
+
+### Configuration Options
+
+```typescript
+instrumentDrizzleClient(db, {
+  dbSystem: "postgresql",    // Database type: 'postgresql' | 'mysql' | 'sqlite' (default: 'postgresql')
+  dbName: "myapp",           // Database name for spans
+  captureQueryText: true,    // Include SQL in traces (default: true)
+  maxQueryTextLength: 1000,  // Max SQL length (default: 1000)
+  peerName: "db.example.com", // Database server hostname
+  peerPort: 5432,           // Database server port
+});
+```
+
 
 ## What You Get
 
 Each database query automatically creates a span with rich telemetry data:
 
 - **Span name**: `drizzle.select`, `drizzle.insert`, `drizzle.update`, etc.
-- **Operation type**: `db.operation` attribute (SELECT, INSERT, UPDATE, DELETE)
+- **Operation type**: `db.operation` attribute (SELECT, INSERT, UPDATE, DELETE, SET)
 - **SQL query text**: Full query statement captured in `db.statement` (configurable)
 - **Database system**: `db.system` attribute (postgresql, mysql, sqlite, etc.)
+- **Transaction tracking**: Transaction queries are marked with `db.transaction` attribute
 - **Error tracking**: Exceptions are recorded with stack traces and proper span status
 - **Performance metrics**: Duration and timing information for every query
+
+### Transaction Support
+
+All queries within transactions are automatically traced, including:
+- RLS (Row Level Security) queries like `SET LOCAL role` and `set_config()`
+- All nested transaction queries
+- Transaction rollbacks and commits
 
 ### Span Attributes
 

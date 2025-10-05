@@ -6,7 +6,7 @@ import {
   type Span,
   type Tracer,
 } from "@opentelemetry/api";
-import type { Auth, BetterAuthPlugin, betterAuth } from "better-auth";
+import type { Auth, BetterAuthPlugin } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 
 const DEFAULT_TRACER_NAME = "@kubiks/otel-better-auth";
@@ -44,16 +44,21 @@ interface InstrumentedAuth {
   [INSTRUMENTED_FLAG]?: true;
 }
 
-type BetterAuthInstance = ReturnType<typeof betterAuth>;
-type BetterAuthInstanceOptions = BetterAuthInstance["options"];
+type AnyAuth = Auth<any>;
 
-type AuthWithOptions<
-  Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions,
-> = Omit<Auth<Options>, "options"> & {
-  options: Options & {
-    plugins?: BetterAuthPlugin[] | Iterable<BetterAuthPlugin>;
-  };
-};
+type AuthWithPlugins<TAuth extends AnyAuth> = TAuth extends {
+  options: infer Options;
+}
+  ? TAuth & {
+      options: Options & {
+        plugins?: BetterAuthPlugin[] | Iterable<BetterAuthPlugin>;
+      };
+    }
+  : TAuth & {
+      options: {
+        plugins?: BetterAuthPlugin[] | Iterable<BetterAuthPlugin>;
+      };
+    };
 
 /**
  * Ends a span with an error status and exception recording.
@@ -187,11 +192,11 @@ const API_METHOD_METADATA: Record<
 /**
  * Instruments a Better Auth instance with OpenTelemetry tracing.
  */
-function instrumentServer<O extends Record<string, any> = any>(
-  server: Auth<O>,
+function instrumentServer<TAuth extends AnyAuth>(
+  server: TAuth,
   tracer: Tracer,
-): Auth<O> {
-  const api = server.api as any; // Cast to any to allow property assignment
+): TAuth {
+  const api = (server as AnyAuth).api as Record<string, any>;
   const instrumentedMethods = new Set<string>();
 
   // First, instrument all known API methods with specific metadata
@@ -242,13 +247,11 @@ function instrumentServer<O extends Record<string, any> = any>(
   return server;
 }
 
-function ensureOtelPlugin<
-  Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions,
->(
-  auth: Auth<Options>,
+function ensureOtelPlugin<TAuth extends AnyAuth>(
+  auth: TAuth,
   config: InstrumentBetterAuthConfig & { tracer: Tracer },
 ): void {
-  const authWithOptions = auth as AuthWithOptions<Options>;
+  const authWithOptions = auth as AuthWithPlugins<TAuth>;
   const options = authWithOptions.options;
   const existingPlugins = options.plugins;
   const pluginsArray = Array.isArray(existingPlugins)
@@ -303,14 +306,15 @@ function ensureOtelPlugin<
  * await auth.api.getSession({ headers });
  * ```
  */
-export function instrumentBetterAuth<
-  Options extends BetterAuthInstanceOptions = BetterAuthInstanceOptions,
->(auth: Auth<Options>, config?: InstrumentBetterAuthConfig): Auth<Options> {
+export function instrumentBetterAuth<TAuth extends AnyAuth>(
+  auth: TAuth,
+  config?: InstrumentBetterAuthConfig,
+): TAuth {
   if (!auth || typeof auth !== "object") {
     return auth;
   }
 
-  if ((auth as Auth<Options> & InstrumentedAuth)[INSTRUMENTED_FLAG]) {
+  if ((auth as TAuth & InstrumentedAuth)[INSTRUMENTED_FLAG]) {
     return auth;
   }
 
@@ -322,7 +326,7 @@ export function instrumentBetterAuth<
   ensureOtelPlugin(auth, { tracerName, tracer });
   instrumentServer(auth, tracer);
 
-  (auth as Auth<Options> & InstrumentedAuth)[INSTRUMENTED_FLAG] = true;
+  (auth as TAuth & InstrumentedAuth)[INSTRUMENTED_FLAG] = true;
 
   return auth;
 }

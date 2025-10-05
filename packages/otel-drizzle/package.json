@@ -1,6 +1,6 @@
 {
   "name": "@kubiks/otel-drizzle",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "private": false,
   "publishConfig": {
     "access": "public"
@@ -36,14 +36,13 @@
     "unit-test": "vitest --run",
     "unit-test-watch": "vitest"
   },
-  "dependencies": {},
   "devDependencies": {
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/sdk-trace-base": "^2.1.0",
     "@types/node": "18.15.11",
     "@types/pg": "^8.11.10",
     "drizzle-orm": "^0.36.4",
-    "postgres": "^3.4.5",
+    "postgres": "^3.4.7",
     "rimraf": "3.0.2",
     "typescript": "^5",
     "vitest": "0.33.0"
