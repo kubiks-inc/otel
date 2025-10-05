@@ -1,5 +1,11 @@
 # @kubiks/otel-better-auth
 
+## 2.0.2
+
+### Patch Changes
+
+- [`2c097f9`](https://github.com/kubiks-inc/otel/commit/2c097f9d760b65dbd3bbaca9c2f548ec370edd09) Thanks [@alex-holovach](https://github.com/alex-holovach)! - Fix return type of instrumentBetterAuth function.
+
 ## 2.0.1
 
 ### Patch Changes
