@@ -4,7 +4,6 @@ import {
   SpanStatusCode,
   trace,
   type Span,
-  type Tracer,
 } from "@opentelemetry/api";
 import type { Resend, CreateEmailOptions, CreateEmailResponse } from "resend";
 
@@ -29,11 +28,6 @@ export const SEMATTRS_RESEND_CC_ADDRESSES = "resend.cc_addresses" as const;
 export const SEMATTRS_RESEND_BCC_ADDRESSES = "resend.bcc_addresses" as const;
 export const SEMATTRS_RESEND_FROM = "resend.from" as const;
 export const SEMATTRS_RESEND_SUBJECT = "resend.subject" as const;
-
-export interface InstrumentResendConfig {
-  tracerName?: string;
-  tracer?: Tracer;
-}
 
 interface InstrumentedResend extends Resend {
   [INSTRUMENTED_FLAG]?: true;
@@ -130,17 +124,13 @@ function finalizeSpan(span: Span, error?: unknown): void {
   span.end();
 }
 
-export function instrumentResend(
-  client: Resend,
-  config?: InstrumentResendConfig,
-): Resend {
+export function instrumentResend(client: Resend): Resend {
   // Check if already instrumented
   if ((client as InstrumentedResend)[INSTRUMENTED_FLAG]) {
     return client;
   }
 
-  const tracerName = config?.tracerName ?? DEFAULT_TRACER_NAME;
-  const tracer = config?.tracer ?? trace.getTracer(tracerName);
+  const tracer = trace.getTracer(DEFAULT_TRACER_NAME);
 
   const originalSend = client.emails.send.bind(client.emails);
   const originalCreate = client.emails.create
