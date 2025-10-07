@@ -26,6 +26,8 @@ import {
   SEMATTRS_QSTASH_SCHEDULE_ID,
   SEMATTRS_QSTASH_CALLER_IP,
   SEMATTRS_HTTP_STATUS_CODE,
+  SEMATTRS_QSTASH_REQUEST_BODY,
+  SEMATTRS_QSTASH_RESPONSE_BODY,
 } from "./index";
 
 describe("instrumentUpstash", () => {
@@ -354,6 +356,100 @@ describe("instrumentUpstash", () => {
     expect(span.attributes[SEMATTRS_QSTASH_MESSAGE_ID]).toBe("msg_123");
     expect(span.status.code).toBe(SpanStatusCode.OK);
   });
+
+  it("captures request body when captureBody is enabled", async () => {
+    const client = createMockClient();
+    instrumentUpstash(client, { captureBody: true });
+
+    const request = {
+      url: "https://example.com/api/process",
+      body: { userId: "123", action: "process" },
+    };
+
+    await client.publishJSON(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_QSTASH_REQUEST_BODY]).toBe(
+      JSON.stringify({ userId: "123", action: "process" })
+    );
+  });
+
+  it("does not capture request body when captureBody is disabled", async () => {
+    const client = createMockClient();
+    instrumentUpstash(client);
+
+    const request = {
+      url: "https://example.com/api/process",
+      body: { userId: "123", action: "process" },
+    };
+
+    await client.publishJSON(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_QSTASH_REQUEST_BODY]).toBeUndefined();
+  });
+
+  it("truncates long request body based on maxBodyLength", async () => {
+    const client = createMockClient();
+    instrumentUpstash(client, { captureBody: true, maxBodyLength: 50 });
+
+    const longBody = { data: "x".repeat(100) };
+    const request = {
+      url: "https://example.com/api/process",
+      body: longBody,
+    };
+
+    await client.publishJSON(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    const capturedBody = span.attributes[SEMATTRS_QSTASH_REQUEST_BODY] as string;
+    expect(capturedBody).toBeDefined();
+    expect(capturedBody.length).toBe(50 + "... (truncated)".length);
+    expect(capturedBody).toContain("... (truncated)");
+  });
+
+  it("handles string body in request", async () => {
+    const client = createMockClient();
+    instrumentUpstash(client, { captureBody: true });
+
+    const request = {
+      url: "https://example.com/api/process",
+      body: "plain text body",
+    };
+
+    await client.publishJSON(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_QSTASH_REQUEST_BODY]).toBe("plain text body");
+  });
 });
 
 describe("instrumentConsumer", () => {
@@ -571,5 +667,121 @@ describe("instrumentConsumer", () => {
 
     expect(span.name).toBe("qstash.messages.receive");
     expect(span.attributes[SEMATTRS_QSTASH_MESSAGE_ID]).toBe("msg_wrapped");
+  });
+
+  it("captures request body when captureBody is enabled", async () => {
+    const handler = vi.fn(async (req: Request) => {
+      return Response.json({ success: true });
+    });
+
+    const instrumentedHandler = instrumentConsumer(handler, { captureBody: true });
+
+    const mockHeaders = new Headers({
+      "content-type": "application/json",
+      "upstash-message-id": "msg_body_test",
+    });
+
+    const requestBody = JSON.stringify({ imageId: "123", action: "process" });
+    const request = {
+      headers: mockHeaders,
+      clone: () => ({
+        text: vi.fn(async () => requestBody),
+      }),
+      json: vi.fn(async () => JSON.parse(requestBody)),
+    } as unknown as Request;
+
+    await instrumentedHandler(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_QSTASH_REQUEST_BODY]).toBe(requestBody);
+  });
+
+  it("captures response body when captureBody is enabled", async () => {
+    const responseBody = JSON.stringify({ success: true, messageId: "msg_456" });
+    const handler = vi.fn(async () => {
+      const response = new Response(responseBody, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+      return response;
+    });
+
+    const instrumentedHandler = instrumentConsumer(handler, { captureBody: true });
+
+    const request = createMockRequest({
+      "upstash-message-id": "msg_response_test",
+    });
+
+    await instrumentedHandler(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_QSTASH_RESPONSE_BODY]).toBe(responseBody);
+  });
+
+  it("does not capture bodies when captureBody is disabled", async () => {
+    const handler = vi.fn(async () => Response.json({ success: true }));
+    const instrumentedHandler = instrumentConsumer(handler);
+
+    const request = createMockRequest({
+      "upstash-message-id": "msg_no_capture",
+    });
+
+    await instrumentedHandler(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_QSTASH_REQUEST_BODY]).toBeUndefined();
+    expect(span.attributes[SEMATTRS_QSTASH_RESPONSE_BODY]).toBeUndefined();
+  });
+
+  it("truncates long response body based on maxBodyLength", async () => {
+    const longResponse = JSON.stringify({ data: "y".repeat(200) });
+    const handler = vi.fn(async () => {
+      return new Response(longResponse, { status: 200 });
+    });
+
+    const instrumentedHandler = instrumentConsumer(handler, {
+      captureBody: true,
+      maxBodyLength: 50,
+    });
+
+    const request = createMockRequest({
+      "upstash-message-id": "msg_truncate",
+    });
+
+    await instrumentedHandler(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    const capturedBody = span.attributes[SEMATTRS_QSTASH_RESPONSE_BODY] as string;
+    expect(capturedBody).toBeDefined();
+    expect(capturedBody.length).toBe(50 + "... (truncated)".length);
+    expect(capturedBody).toContain("... (truncated)");
   });
 });

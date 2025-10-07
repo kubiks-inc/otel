@@ -4,6 +4,10 @@ OpenTelemetry instrumentation for the [Upstash QStash](https://upstash.com/docs/
 Capture spans for every QStash API call, enrich them with operation metadata,
 and keep an eye on message queue operations from your traces.
 
+![Upstash QStash Trace Visualization](https://github.com/kubiks-inc/otel/blob/main/images/otel-upstash-queue-trace.png)
+
+_Visualize your message queue operations with detailed span information including message publishing, callbacks, and delivery tracking._
+
 ## Installation
 
 ```bash
@@ -32,6 +36,20 @@ await client.publishJSON({
 
 `instrumentUpstash` wraps the QStash client instance you already use — no configuration changes
 needed. Every SDK call creates a client span with useful attributes.
+
+### With Body Capture
+
+Optionally capture request/response bodies for debugging:
+
+```ts
+const client = instrumentUpstash(
+  new Client({ token: process.env.QSTASH_TOKEN! }),
+  {
+    captureBody: true,      // Enable body capture (default: false)
+    maxBodyLength: 2048,    // Max characters to capture (default: 1024)
+  }
+);
+```
 
 ## What Gets Traced
 
@@ -82,7 +100,16 @@ The `instrumentConsumer` function wraps your message handler, creating a span wi
 | `qstash.caller_ip`             | IP address of the caller                    | `192.168.1.1`                                |
 | `http.status_code`             | HTTP response status code                   | `200`                                        |
 
-The instrumentation captures message metadata and configuration to help with debugging and monitoring, while avoiding sensitive message content.
+### Body/Payload Attributes (Optional)
+
+When `captureBody` is enabled in configuration:
+
+| Attribute                      | Description                                 | Captured By                                  |
+| ------------------------------ | ------------------------------------------- | -------------------------------------------- |
+| `qstash.request.body`          | Request/message body content                | Both publisher and consumer                  |
+| `qstash.response.body`         | Response body content                       | Consumer only                                |
+
+The instrumentation captures message metadata and configuration to help with debugging and monitoring. Body capture is **disabled by default** to protect sensitive data.
 
 ## Usage Examples
 
@@ -181,11 +208,23 @@ async function handler(request: Request) {
 export const POST = verifySignatureAppRouter(instrumentConsumer(handler));
 ```
 
+**With body capture:**
+
+```ts
+export const POST = verifySignatureAppRouter(
+  instrumentConsumer(handler, {
+    captureBody: true,
+    maxBodyLength: 2048,
+  })
+);
+```
+
 The `instrumentConsumer` function:
 - Extracts QStash headers (message ID, retry count, schedule ID, caller IP)
 - Creates a SERVER span for the message processing
 - Tracks response status codes
 - Captures errors during processing
+- Optionally captures request and response bodies (when configured)
 
 ### Complete Next.js Integration Example
 
@@ -279,6 +318,20 @@ All of this happens automatically once you wrap your client and handlers with th
 3. **Handle Errors Gracefully**: Let errors bubble up naturally - the instrumentation will capture them and mark the span appropriately.
 
 4. **Monitor Retry Patterns**: Use the `qstash.retried` attribute to track retry patterns and identify problematic messages.
+
+### Configuration Best Practices
+
+1. **Body Capture in Development**: Enable `captureBody` in development environments for easier debugging:
+   ```ts
+   const config = {
+     captureBody: process.env.NODE_ENV === "development",
+     maxBodyLength: 2048,
+   };
+   ```
+
+2. **Protect Sensitive Data**: Be cautious about enabling body capture in production if your messages contain sensitive information (PII, credentials, etc.).
+
+3. **Set Appropriate Limits**: Use `maxBodyLength` to prevent excessively large spans. Bodies exceeding this limit will be truncated with `"... (truncated)"` appended.
 
 ### General Best Practices
 

@@ -31,11 +31,41 @@ export const SEMATTRS_QSTASH_SCHEDULE_ID = "qstash.schedule_id" as const;
 export const SEMATTRS_QSTASH_CALLER_IP = "qstash.caller_ip" as const;
 export const SEMATTRS_HTTP_STATUS_CODE = "http.status_code" as const;
 
+// Body/payload attributes
+export const SEMATTRS_QSTASH_REQUEST_BODY = "qstash.request.body" as const;
+export const SEMATTRS_QSTASH_RESPONSE_BODY = "qstash.response.body" as const;
+
+export interface InstrumentationConfig {
+  /**
+   * Whether to capture request/response bodies in spans.
+   * @default false
+   */
+  captureBody?: boolean;
+  
+  /**
+   * Maximum length of the body to capture. Bodies longer than this will be truncated.
+   * @default 1024
+   */
+  maxBodyLength?: number;
+}
+
 interface InstrumentedClient extends Client {
   [INSTRUMENTED_FLAG]?: true;
 }
 
-function annotatePublishSpan(span: Span, request: PublishRequest<string>): void {
+function serializeBody(body: unknown, maxLength: number): string {
+  try {
+    const serialized = typeof body === "string" ? body : JSON.stringify(body);
+    if (serialized.length > maxLength) {
+      return serialized.substring(0, maxLength) + "... (truncated)";
+    }
+    return serialized;
+  } catch (error) {
+    return "[Unable to serialize body]";
+  }
+}
+
+function annotatePublishSpan(span: Span, request: PublishRequest<string>, config?: InstrumentationConfig): void {
   // Set base attributes
   span.setAttributes({
     [SEMATTRS_MESSAGING_SYSTEM]: "qstash",
@@ -86,6 +116,13 @@ function annotatePublishSpan(span: Span, request: PublishRequest<string>): void 
   if (request.failureCallback) {
     span.setAttribute(SEMATTRS_QSTASH_FAILURE_CALLBACK_URL, request.failureCallback);
   }
+
+  // Capture request body if enabled
+  if (config?.captureBody && request.body !== undefined) {
+    const maxLength = config.maxBodyLength ?? 1024;
+    const bodyString = serializeBody(request.body, maxLength);
+    span.setAttribute(SEMATTRS_QSTASH_REQUEST_BODY, bodyString);
+  }
 }
 
 function annotatePublishResponse(
@@ -111,7 +148,7 @@ function finalizeSpan(span: Span, error?: unknown): void {
   span.end();
 }
 
-export function instrumentUpstash(client: Client): Client {
+export function instrumentUpstash(client: Client, config?: InstrumentationConfig): Client {
   // Check if already instrumented
   if ((client as InstrumentedClient)[INSTRUMENTED_FLAG]) {
     return client;
@@ -130,7 +167,7 @@ export function instrumentUpstash(client: Client): Client {
     });
 
     // Annotate span with request details
-    annotatePublishSpan(span, request as PublishRequest<string>);
+    annotatePublishSpan(span, request as PublishRequest<string>, config);
 
     // Set the span as active
     const activeContext = trace.setSpan(context.active(), span);
@@ -200,7 +237,7 @@ function extractQStashHeaders(request: Request): Record<string, string | number>
   return attributes;
 }
 
-export function instrumentConsumer(handler: RouteHandler): RouteHandler {
+export function instrumentConsumer(handler: RouteHandler, config?: InstrumentationConfig): RouteHandler {
   const tracer = trace.getTracer(DEFAULT_TRACER_NAME);
 
   return async function instrumentedConsumer(request: Request): Promise<Response> {
@@ -220,6 +257,21 @@ export function instrumentConsumer(handler: RouteHandler): RouteHandler {
     const qstashHeaders = extractQStashHeaders(request);
     span.setAttributes(qstashHeaders);
 
+    // Capture request body if enabled
+    if (config?.captureBody) {
+      try {
+        const clonedRequest = request.clone();
+        const body = await clonedRequest.text();
+        if (body) {
+          const maxLength = config.maxBodyLength ?? 1024;
+          const bodyString = serializeBody(body, maxLength);
+          span.setAttribute(SEMATTRS_QSTASH_REQUEST_BODY, bodyString);
+        }
+      } catch (error) {
+        // Ignore errors when capturing request body
+      }
+    }
+
     // Set the span as active
     const activeContext = trace.setSpan(context.active(), span);
 
@@ -229,6 +281,21 @@ export function instrumentConsumer(handler: RouteHandler): RouteHandler {
 
       // Capture response status
       span.setAttribute(SEMATTRS_HTTP_STATUS_CODE, response.status);
+
+      // Capture response body if enabled
+      if (config?.captureBody) {
+        try {
+          const clonedResponse = response.clone();
+          const responseBody = await clonedResponse.text();
+          if (responseBody) {
+            const maxLength = config.maxBodyLength ?? 1024;
+            const bodyString = serializeBody(responseBody, maxLength);
+            span.setAttribute(SEMATTRS_QSTASH_RESPONSE_BODY, bodyString);
+          }
+        } catch (error) {
+          // Ignore errors when capturing response body
+        }
+      }
 
       // Mark as successful if status is 2xx
       if (response.status >= 200 && response.status < 300) {
