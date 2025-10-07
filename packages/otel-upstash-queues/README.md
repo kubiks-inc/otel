@@ -20,6 +20,8 @@ pnpm add @kubiks/otel-upstash-queues
 
 ## Quick Start
 
+### Publishing Messages
+
 ```ts
 import { Client } from "@upstash/qstash";
 import { instrumentUpstash } from "@kubiks/otel-upstash-queues";
@@ -36,6 +38,28 @@ await client.publishJSON({
 
 `instrumentUpstash` wraps the QStash client instance you already use — no configuration changes
 needed. Every SDK call creates a client span with useful attributes.
+
+### Consuming Messages
+
+```ts
+// app/api/process/route.ts
+import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
+import { instrumentConsumer } from "@kubiks/otel-upstash-queues";
+
+async function handler(request: Request) {
+  const data = await request.json();
+  
+  // Process your message
+  await processImage(data.imageId);
+  
+  return Response.json({ success: true });
+}
+
+// Instrument first, then verify signature
+export const POST = verifySignatureAppRouter(instrumentConsumer(handler));
+```
+
+`instrumentConsumer` wraps your message handler to trace message consumption, creating a SERVER span for each message received and processed.
 
 ### With Body Capture
 
