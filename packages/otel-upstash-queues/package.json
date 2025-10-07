@@ -1,11 +1,11 @@
 {
-  "name": "@kubiks/otel-upstash",
+  "name": "@kubiks/otel-upstash-queues",
   "version": "1.0.0",
   "private": false,
   "publishConfig": {
     "access": "public"
   },
-  "description": "OpenTelemetry instrumentation for the Upstash QStash Node.js SDK",
+  "description": "OpenTelemetry instrumentation for the Upstash QStash (Queues) Node.js SDK",
   "author": "Kubiks",
   "license": "MIT",
   "repository": "kubiks-inc/otel",

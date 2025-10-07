@@ -7,8 +7,8 @@ import {
 } from "@opentelemetry/api";
 import type { Client, PublishRequest, PublishResponse } from "@upstash/qstash";
 
-const DEFAULT_TRACER_NAME = "@kubiks/otel-upstash";
-const INSTRUMENTED_FLAG = Symbol("kubiksOtelUpstashInstrumented");
+const DEFAULT_TRACER_NAME = "@kubiks/otel-upstash-queues";
+const INSTRUMENTED_FLAG = Symbol("kubiksOtelUpstashQueuesInstrumented");
 
 // Semantic attribute constants
 export const SEMATTRS_MESSAGING_SYSTEM = "messaging.system" as const;

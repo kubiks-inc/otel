@@ -1,10 +1,10 @@
-# @kubiks/otel-upstash
+# @kubiks/otel-upstash-queues
 
 ## 1.0.0
 
 ### Major Changes
 
-- Initial release of OpenTelemetry instrumentation for Upstash QStash
+- Initial release of OpenTelemetry instrumentation for Upstash QStash (Queues)
 - Instrumentation for `publishJSON` method
 - Support for all QStash request parameters including:
   - URL targeting

@@ -1,4 +1,4 @@
-# @kubiks/otel-upstash
+# @kubiks/otel-upstash-queues
 
 OpenTelemetry instrumentation for the [Upstash QStash](https://upstash.com/docs/qstash) Node.js SDK.
 Capture spans for every QStash API call, enrich them with operation metadata,
@@ -7,9 +7,9 @@ and keep an eye on message queue operations from your traces.
 ## Installation
 
 ```bash
-npm install @kubiks/otel-upstash
+npm install @kubiks/otel-upstash-queues
 # or
-pnpm add @kubiks/otel-upstash
+pnpm add @kubiks/otel-upstash-queues
 ```
 
 **Peer Dependencies:** `@opentelemetry/api` >= 1.9.0, `@upstash/qstash` >= 2.0.0
@@ -18,7 +18,7 @@ pnpm add @kubiks/otel-upstash
 
 ```ts
 import { Client } from "@upstash/qstash";
-import { instrumentUpstash } from "@kubiks/otel-upstash";
+import { instrumentUpstash } from "@kubiks/otel-upstash-queues";
 
 const client = instrumentUpstash(
   new Client({ token: process.env.QSTASH_TOKEN! })
@@ -65,7 +65,7 @@ The instrumentation captures message metadata and configuration to help with deb
 
 ```ts
 import { Client } from "@upstash/qstash";
-import { instrumentUpstash } from "@kubiks/otel-upstash";
+import { instrumentUpstash } from "@kubiks/otel-upstash-queues";
 
 const client = instrumentUpstash(
   new Client({ token: process.env.QSTASH_TOKEN! })
@@ -140,7 +140,7 @@ await client.publishJSON({
 // app/actions.ts
 "use server";
 import { Client } from "@upstash/qstash";
-import { instrumentUpstash } from "@kubiks/otel-upstash";
+import { instrumentUpstash } from "@kubiks/otel-upstash-queues";
 
 const qstashClient = instrumentUpstash(
   new Client({
