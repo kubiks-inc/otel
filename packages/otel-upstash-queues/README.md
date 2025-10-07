@@ -35,11 +35,22 @@ needed. Every SDK call creates a client span with useful attributes.
 
 ## What Gets Traced
 
-This instrumentation specifically wraps the `client.publishJSON` method, creating a single clean span for each message publish operation.
+This instrumentation provides two main functions:
+
+1. **`instrumentUpstash`** - Wraps the QStash client to trace message publishing
+2. **`instrumentConsumer`** - Wraps your message handler to trace message consumption
+
+### Publisher Instrumentation
+
+The `instrumentUpstash` function wraps the `client.publishJSON` method, creating a span with `SpanKind.CLIENT` for each message publish operation.
+
+### Consumer Instrumentation  
+
+The `instrumentConsumer` function wraps your message handler, creating a span with `SpanKind.SERVER` for each message received and processed.
 
 ## Span Attributes
 
-Each span includes:
+### Publisher Spans (`instrumentUpstash`)
 
 | Attribute                      | Description                                 | Example                                      |
 | ------------------------------ | ------------------------------------------- | -------------------------------------------- |
@@ -53,9 +64,23 @@ Each span includes:
 | `qstash.delay`                 | Delay before processing (seconds or string) | `60` or `"1h"`                               |
 | `qstash.not_before`            | Unix timestamp for earliest processing      | `1672531200`                                 |
 | `qstash.deduplication_id`      | Deduplication ID for idempotent operations  | `unique-id-123`                              |
-| `qstash.retries`               | Number of retry attempts                    | `3`                                          |
+| `qstash.retries`               | Number of retry attempts (max)              | `3`                                          |
 | `qstash.callback_url`          | Success callback URL                        | `https://example.com/callback`               |
 | `qstash.failure_callback_url`  | Failure callback URL                        | `https://example.com/failure`                |
+
+### Consumer Spans (`instrumentConsumer`)
+
+| Attribute                      | Description                                 | Example                                      |
+| ------------------------------ | ------------------------------------------- | -------------------------------------------- |
+| `messaging.system`             | Constant value `qstash`                     | `qstash`                                     |
+| `messaging.operation`          | Operation type                              | `receive`                                    |
+| `qstash.resource`              | Resource name                               | `messages`                                   |
+| `qstash.target`                | Full operation target                       | `messages.receive`                           |
+| `qstash.message_id`            | Message ID from QStash                      | `msg_456`                                    |
+| `qstash.retried`               | Number of times retried (actual count)      | `2`                                          |
+| `qstash.schedule_id`           | Schedule ID (if from scheduled message)     | `schedule_123`                               |
+| `qstash.caller_ip`             | IP address of the caller                    | `192.168.1.1`                                |
+| `http.status_code`             | HTTP response status code                   | `200`                                        |
 
 The instrumentation captures message metadata and configuration to help with debugging and monitoring, while avoiding sensitive message content.
 
@@ -134,8 +159,37 @@ await client.publishJSON({
 });
 ```
 
-### Next.js Integration Example
+### Message Consumer Instrumentation
 
+Use `instrumentConsumer` to trace your message handler that receives QStash messages:
+
+```ts
+// app/api/process/route.ts
+import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
+import { instrumentConsumer } from "@kubiks/otel-upstash-queues";
+
+async function handler(request: Request) {
+  const data = await request.json();
+  
+  // Process your message
+  await processImage(data.imageId);
+  
+  return Response.json({ success: true });
+}
+
+// Instrument first, then verify signature
+export const POST = verifySignatureAppRouter(instrumentConsumer(handler));
+```
+
+The `instrumentConsumer` function:
+- Extracts QStash headers (message ID, retry count, schedule ID, caller IP)
+- Creates a SERVER span for the message processing
+- Tracks response status codes
+- Captures errors during processing
+
+### Complete Next.js Integration Example
+
+**Publishing messages:**
 ```ts
 // app/actions.ts
 "use server";
@@ -148,31 +202,62 @@ const qstashClient = instrumentUpstash(
   })
 );
 
-export async function startBackgroundJob() {
+export async function startBackgroundJob(imageId: string) {
   await qstashClient.publishJSON({
     url: "https://your-app.vercel.app/api/process",
-    body: {
-      userId: "user_123",
-      timestamp: Date.now(),
-    },
+    body: { imageId },
   });
 }
 ```
 
+**Receiving messages:**
+```ts
+// app/api/process/route.ts
+import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
+import { instrumentConsumer } from "@kubiks/otel-upstash-queues";
+
+async function handler(request: Request) {
+  const { imageId } = await request.json();
+  
+  // Your processing logic
+  await processImage(imageId);
+  
+  return Response.json({ success: true });
+}
+
+export const POST = verifySignatureAppRouter(instrumentConsumer(handler));
+```
+
 ## How It Works
 
-The instrumentation creates OpenTelemetry spans for QStash operations by:
+### Publisher Instrumentation
+
+The `instrumentUpstash` function creates OpenTelemetry spans for publishing by:
 
 1. Wrapping the `publishJSON` method of the QStash client
-2. Creating a span before the operation starts
+2. Creating a CLIENT span before the operation starts
 3. Adding relevant attributes from the request parameters
 4. Capturing the message ID from the response
 5. Recording any errors that occur
 6. Properly closing the span with success or error status
 
-All of this happens automatically once you wrap your client with `instrumentUpstash()`.
+### Consumer Instrumentation
+
+The `instrumentConsumer` function creates OpenTelemetry spans for receiving by:
+
+1. Wrapping your message handler function
+2. Creating a SERVER span when a message is received
+3. Extracting QStash headers (message ID, retry count, etc.)
+4. Executing your handler within the span context
+5. Capturing the HTTP response status code
+6. Recording any errors during processing
+7. Properly closing the span with success or error status
+
+All of this happens automatically once you wrap your client and handlers with the instrumentation functions.
 
 ## Best Practices
+
+### Publisher Best Practices
 
 1. **Instrument Early**: Call `instrumentUpstash()` when you create your QStash client, typically at application startup.
 
@@ -180,9 +265,26 @@ All of this happens automatically once you wrap your client with `instrumentUpst
 
 3. **Use Deduplication IDs**: For idempotent operations, always provide a `deduplicationId` to prevent duplicate processing.
 
-4. **Monitor Traces**: Use OpenTelemetry-compatible tracing backends (like Jaeger, Zipkin, or cloud providers) to visualize your message queues.
+4. **Set Appropriate Retries**: Configure retry counts based on the criticality and nature of your tasks.
 
-5. **Set Appropriate Retries**: Configure retry counts based on the criticality and nature of your tasks.
+### Consumer Best Practices
+
+1. **Instrument Before Verification**: Always wrap your handler with `instrumentConsumer()` before wrapping with `verifySignatureAppRouter()`:
+   ```ts
+   export const POST = verifySignatureAppRouter(instrumentConsumer(handler));
+   ```
+
+2. **Return Proper Status Codes**: Ensure your handler returns appropriate HTTP status codes. Non-2xx status codes will mark the span as an error.
+
+3. **Handle Errors Gracefully**: Let errors bubble up naturally - the instrumentation will capture them and mark the span appropriately.
+
+4. **Monitor Retry Patterns**: Use the `qstash.retried` attribute to track retry patterns and identify problematic messages.
+
+### General Best Practices
+
+1. **Monitor Traces**: Use OpenTelemetry-compatible tracing backends (like Jaeger, Zipkin, or cloud providers) to visualize your message queues.
+
+2. **Correlate Publisher and Consumer**: The `qstash.message_id` attribute allows you to correlate publisher and consumer spans for end-to-end tracing.
 
 ## License
 

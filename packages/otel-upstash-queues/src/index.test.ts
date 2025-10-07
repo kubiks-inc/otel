@@ -8,6 +8,7 @@ import {
 import type { Client } from "@upstash/qstash";
 import {
   instrumentUpstash,
+  instrumentConsumer,
   SEMATTRS_MESSAGING_OPERATION,
   SEMATTRS_MESSAGING_SYSTEM,
   SEMATTRS_QSTASH_CALLBACK_URL,
@@ -21,6 +22,10 @@ import {
   SEMATTRS_QSTASH_RETRIES,
   SEMATTRS_QSTASH_TARGET,
   SEMATTRS_QSTASH_URL,
+  SEMATTRS_QSTASH_RETRIED,
+  SEMATTRS_QSTASH_SCHEDULE_ID,
+  SEMATTRS_QSTASH_CALLER_IP,
+  SEMATTRS_HTTP_STATUS_CODE,
 } from "./index";
 
 describe("instrumentUpstash", () => {
@@ -348,5 +353,223 @@ describe("instrumentUpstash", () => {
     expect(span.attributes[SEMATTRS_QSTASH_METHOD]).toBe("POST");
     expect(span.attributes[SEMATTRS_QSTASH_MESSAGE_ID]).toBe("msg_123");
     expect(span.status.code).toBe(SpanStatusCode.OK);
+  });
+});
+
+describe("instrumentConsumer", () => {
+  let provider: BasicTracerProvider;
+  let exporter: InMemorySpanExporter;
+
+  beforeEach(() => {
+    exporter = new InMemorySpanExporter();
+    provider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
+    trace.setGlobalTracerProvider(provider);
+  });
+
+  afterEach(async () => {
+    await provider.shutdown();
+    exporter.reset();
+    trace.disable();
+  });
+
+  const createMockRequest = (headers: Record<string, string> = {}): Request => {
+    const mockHeaders = new Headers({
+      "content-type": "application/json",
+      ...headers,
+    });
+
+    return {
+      headers: mockHeaders,
+      json: vi.fn(async () => ({ data: "test" })),
+    } as unknown as Request;
+  };
+
+  it("wraps handler and records spans", async () => {
+    const handler = vi.fn(async (req: Request) => {
+      return Response.json({ success: true });
+    });
+
+    const instrumentedHandler = instrumentConsumer(handler);
+
+    const request = createMockRequest({
+      "upstash-message-id": "msg_456",
+    });
+
+    const response = await instrumentedHandler(request);
+    expect(response.status).toBe(200);
+    expect(handler).toHaveBeenCalledWith(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.name).toBe("qstash.messages.receive");
+    expect(span.attributes[SEMATTRS_MESSAGING_SYSTEM]).toBe("qstash");
+    expect(span.attributes[SEMATTRS_MESSAGING_OPERATION]).toBe("receive");
+    expect(span.attributes[SEMATTRS_QSTASH_RESOURCE]).toBe("messages");
+    expect(span.attributes[SEMATTRS_QSTASH_TARGET]).toBe("messages.receive");
+    expect(span.attributes[SEMATTRS_QSTASH_MESSAGE_ID]).toBe("msg_456");
+    expect(span.attributes[SEMATTRS_HTTP_STATUS_CODE]).toBe(200);
+    expect(span.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("captures QStash headers", async () => {
+    const handler = vi.fn(async () => Response.json({ success: true }));
+    const instrumentedHandler = instrumentConsumer(handler);
+
+    const request = createMockRequest({
+      "upstash-message-id": "msg_789",
+      "upstash-retried": "2",
+      "upstash-schedule-id": "schedule_123",
+      "upstash-caller-ip": "192.168.1.1",
+    });
+
+    await instrumentedHandler(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_QSTASH_MESSAGE_ID]).toBe("msg_789");
+    expect(span.attributes[SEMATTRS_QSTASH_RETRIED]).toBe(2);
+    expect(span.attributes[SEMATTRS_QSTASH_SCHEDULE_ID]).toBe("schedule_123");
+    expect(span.attributes[SEMATTRS_QSTASH_CALLER_IP]).toBe("192.168.1.1");
+  });
+
+  it("handles missing QStash headers gracefully", async () => {
+    const handler = vi.fn(async () => Response.json({ success: true }));
+    const instrumentedHandler = instrumentConsumer(handler);
+
+    const request = createMockRequest({});
+
+    await instrumentedHandler(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_QSTASH_MESSAGE_ID]).toBeUndefined();
+    expect(span.attributes[SEMATTRS_QSTASH_RETRIED]).toBeUndefined();
+    expect(span.attributes[SEMATTRS_HTTP_STATUS_CODE]).toBe(200);
+    expect(span.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("captures errors and marks span status", async () => {
+    const handler = vi.fn().mockRejectedValue(new Error("Processing failed"));
+    const instrumentedHandler = instrumentConsumer(handler);
+
+    const request = createMockRequest({
+      "upstash-message-id": "msg_error",
+    });
+
+    await expect(async () => instrumentedHandler(request)).rejects.toThrowError(
+      "Processing failed"
+    );
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
+    const hasException = span.events.some((event) => event.name === "exception");
+    expect(hasException).toBe(true);
+  });
+
+  it("marks span as error for non-2xx status codes", async () => {
+    const handler = vi.fn(async () => new Response("Bad Request", { status: 400 }));
+    const instrumentedHandler = instrumentConsumer(handler);
+
+    const request = createMockRequest({
+      "upstash-message-id": "msg_400",
+    });
+
+    const response = await instrumentedHandler(request);
+    expect(response.status).toBe(400);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_HTTP_STATUS_CODE]).toBe(400);
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
+  });
+
+  it("handles retry count as number", async () => {
+    const handler = vi.fn(async () => Response.json({ success: true }));
+    const instrumentedHandler = instrumentConsumer(handler);
+
+    const request = createMockRequest({
+      "upstash-message-id": "msg_retry",
+      "upstash-retried": "5",
+    });
+
+    await instrumentedHandler(request);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.attributes[SEMATTRS_QSTASH_RETRIED]).toBe(5);
+  });
+
+  it("works with verifySignatureAppRouter pattern", async () => {
+    // Simulate the pattern: verifySignatureAppRouter(instrumentConsumer(handler))
+    const handler = vi.fn(async (req: Request) => {
+      const data = await req.json();
+      return Response.json({ received: data });
+    });
+
+    const instrumentedHandler = instrumentConsumer(handler);
+    
+    // Simulate what verifySignatureAppRouter might do (simplified)
+    const wrappedHandler = async (req: Request) => {
+      // Signature verification would happen here
+      return instrumentedHandler(req);
+    };
+
+    const request = createMockRequest({
+      "upstash-message-id": "msg_wrapped",
+      "upstash-retried": "0",
+    });
+
+    const response = await wrappedHandler(request);
+    expect(response.status).toBe(200);
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    const span = spans[0];
+    if (!span) {
+      throw new Error("Expected a span to be recorded");
+    }
+
+    expect(span.name).toBe("qstash.messages.receive");
+    expect(span.attributes[SEMATTRS_QSTASH_MESSAGE_ID]).toBe("msg_wrapped");
   });
 });

@@ -25,6 +25,12 @@ export const SEMATTRS_QSTASH_RETRIES = "qstash.retries" as const;
 export const SEMATTRS_QSTASH_CALLBACK_URL = "qstash.callback_url" as const;
 export const SEMATTRS_QSTASH_FAILURE_CALLBACK_URL = "qstash.failure_callback_url" as const;
 
+// Receiver-specific attributes
+export const SEMATTRS_QSTASH_RETRIED = "qstash.retried" as const;
+export const SEMATTRS_QSTASH_SCHEDULE_ID = "qstash.schedule_id" as const;
+export const SEMATTRS_QSTASH_CALLER_IP = "qstash.caller_ip" as const;
+export const SEMATTRS_HTTP_STATUS_CODE = "http.status_code" as const;
+
 interface InstrumentedClient extends Client {
   [INSTRUMENTED_FLAG]?: true;
 }
@@ -156,4 +162,86 @@ export function instrumentUpstash(client: Client): Client {
   (client as InstrumentedClient)[INSTRUMENTED_FLAG] = true;
 
   return client;
+}
+
+// Type for Next.js route handlers
+type RouteHandler = (request: Request) => Promise<Response> | Response;
+
+function extractQStashHeaders(request: Request): Record<string, string | number> {
+  const attributes: Record<string, string | number> = {};
+
+  // Extract QStash message ID
+  const messageId = request.headers.get("upstash-message-id");
+  if (messageId) {
+    attributes[SEMATTRS_QSTASH_MESSAGE_ID] = messageId;
+  }
+
+  // Extract retry count
+  const retried = request.headers.get("upstash-retried");
+  if (retried) {
+    const retriedNum = parseInt(retried, 10);
+    if (!isNaN(retriedNum)) {
+      attributes[SEMATTRS_QSTASH_RETRIED] = retriedNum;
+    }
+  }
+
+  // Extract schedule ID if present
+  const scheduleId = request.headers.get("upstash-schedule-id");
+  if (scheduleId) {
+    attributes[SEMATTRS_QSTASH_SCHEDULE_ID] = scheduleId;
+  }
+
+  // Extract caller IP
+  const callerIp = request.headers.get("upstash-caller-ip");
+  if (callerIp) {
+    attributes[SEMATTRS_QSTASH_CALLER_IP] = callerIp;
+  }
+
+  return attributes;
+}
+
+export function instrumentConsumer(handler: RouteHandler): RouteHandler {
+  const tracer = trace.getTracer(DEFAULT_TRACER_NAME);
+
+  return async function instrumentedConsumer(request: Request): Promise<Response> {
+    const span = tracer.startSpan("qstash.messages.receive", {
+      kind: SpanKind.SERVER,
+    });
+
+    // Set base attributes
+    span.setAttributes({
+      [SEMATTRS_MESSAGING_SYSTEM]: "qstash",
+      [SEMATTRS_MESSAGING_OPERATION]: "receive",
+      [SEMATTRS_QSTASH_RESOURCE]: "messages",
+      [SEMATTRS_QSTASH_TARGET]: "messages.receive",
+    });
+
+    // Extract and set QStash headers
+    const qstashHeaders = extractQStashHeaders(request);
+    span.setAttributes(qstashHeaders);
+
+    // Set the span as active
+    const activeContext = trace.setSpan(context.active(), span);
+
+    try {
+      // Call the handler within the active context
+      const response = await context.with(activeContext, () => handler(request));
+
+      // Capture response status
+      span.setAttribute(SEMATTRS_HTTP_STATUS_CODE, response.status);
+
+      // Mark as successful if status is 2xx
+      if (response.status >= 200 && response.status < 300) {
+        finalizeSpan(span);
+      } else {
+        finalizeSpan(span, new Error(`Handler returned status ${response.status}`));
+      }
+
+      return response;
+    } catch (error) {
+      // Mark as failed
+      finalizeSpan(span, error);
+      throw error;
+    }
+  };
 }
