@@ -3,6 +3,10 @@
 OpenTelemetry instrumentation for the [Autumn](https://useautumn.com) billing SDK.
 Capture spans for every billing operation including feature checks, usage tracking, checkout flows, product attachments, and cancellations with detailed metadata.
 
+![Autumn Trace Visualization](https://github.com/kubiks-inc/otel/blob/main/images/otel-autumn-trace.png)
+
+_Visualize your billing operations with detailed span information including operation type, customer IDs, feature IDs, and billing metadata._
+
 ## Installation
 
 ```bash
