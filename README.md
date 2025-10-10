@@ -12,6 +12,7 @@ Our goal is to bring the TypeScript ecosystem the observability tools it’s bee
 
 ## Supported integrations
 
+- [`@kubiks/otel-autumn`](./packages/otel-autumn/README.md)
 - [`@kubiks/otel-better-auth`](./packages/otel-better-auth/README.md)
 - [`@kubiks/otel-drizzle`](./packages/otel-drizzle/README.md)
 - [`@kubiks/otel-resend`](./packages/otel-resend/README.md)
@@ -23,7 +24,6 @@ Our goal is to bring the TypeScript ecosystem the observability tools it’s bee
 
 - [Stripe](https://stripe.com/)
 - [Polar.sh](https://polar.sh/)
-- [Autumn](https://useautumn.com/)
 - [ClickHouse](https://clickhouse.com/)
 - [AI SDK](https://ai-sdk.dev/)
 - [Mastra](https://mastra.ai/)
