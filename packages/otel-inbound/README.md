@@ -274,30 +274,6 @@ export const POST = instrumentInboundWebhook(
 );
 ```
 
-## How It Works
-
-The instrumentation wraps Inbound SDK methods to:
-1. Create OpenTelemetry spans for each operation
-2. Extract and attach relevant metadata as span attributes
-3. Propagate trace context for distributed tracing
-4. Capture errors and mark span status accordingly
-5. Automatically handle both sending and receiving workflows
-
-The instrumentation is **idempotent** — calling `instrumentInbound` multiple times on the same instance is safe and will only instrument once.
-
-## Security Considerations
-
-When using `captureEmailContent: true`:
-- Email HTML/text content will be included in traces
-- Consider your observability backend's data retention policies
-- Be mindful of sensitive information in email content
-- Use `maxContentLength` to limit captured data
-
-For production environments, we recommend:
-- Keeping `captureEmailContent` disabled (default)
-- Reviewing span attributes to ensure no PII is captured
-- Using secure backends for trace data
-
 ## License
 
 MIT
