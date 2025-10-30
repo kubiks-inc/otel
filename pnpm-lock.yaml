@@ -102,6 +102,30 @@ importers:
         specifier: 0.33.0
         version: 0.33.0(less@4.2.0)(sass@1.69.7)(stylus@0.59.0)
 
+  packages/otel-inbound:
+    devDependencies:
+      '@inboundemail/sdk':
+        specifier: ^4.3.1
+        version: 4.3.1(react-dom@18.3.1(react@18.2.0))(react@18.2.0)
+      '@opentelemetry/api':
+        specifier: ^1.9.0
+        version: 1.9.0
+      '@opentelemetry/sdk-trace-base':
+        specifier: ^2.1.0
+        version: 2.1.0(@opentelemetry/api@1.9.0)
+      '@types/node':
+        specifier: 18.15.11
+        version: 18.15.11
+      rimraf:
+        specifier: 3.0.2
+        version: 3.0.2
+      typescript:
+        specifier: ^5
+        version: 5.3.3
+      vitest:
+        specifier: 0.33.0
+        version: 0.33.0(less@4.2.0)(sass@1.69.7)(stylus@0.59.0)
+
   packages/otel-mongodb:
     devDependencies:
       '@opentelemetry/api':
@@ -549,6 +573,13 @@ packages:
 
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
+
+  '@inboundemail/sdk@4.3.1':
+    resolution: {integrity: sha512-WHyGHnGa5Kyzd/rJW4p/XJVqwx9s/e2LgqO3eL1+XCpu3xAU3W8A7oHs1l5kD3kakMuEjAoLacAp+xT3P58q6w==}
+    engines: {node: '>=16.0.0'}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
 
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
@@ -2945,6 +2976,11 @@ snapshots:
     optional: true
 
   '@hexagon/base64@1.1.28': {}
+
+  '@inboundemail/sdk@4.3.1(react-dom@18.3.1(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      react: 18.2.0
+      react-dom: 18.3.1(react@18.2.0)
 
   '@isaacs/cliui@8.0.2':
     dependencies:
