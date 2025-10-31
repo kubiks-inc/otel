@@ -1,8 +1,10 @@
 # @kubiks/otel-upstash-workflow
 
-OpenTelemetry instrumentation for the [Upstash Workflow](https://upstash.com/docs/workflow) Node.js SDK.
-Capture spans for every workflow execution and step, enrich them with operation metadata,
-and keep an eye on workflow operations from your traces.
+OpenTelemetry instrumentation for the [Upstash Workflow](https://upstash.com/docs/workflow) Node.js SDK. Capture spans for every workflow execution and step, enrich them with operation metadata, and keep an eye on workflow operations from your traces.
+
+![Upstash Workflow Trace Visualization](https://github.com/kubiks-inc/otel/blob/main/images/otel-upstash-workflows.png)
+
+_Visualize your workflow executions with detailed span information including steps, sleep operations, API calls, and performance metrics._
 
 > **Note:** This package instruments the Upstash Workflow SDK, which is currently in pre-release. The API may change as the Workflow SDK evolves.
 
@@ -24,7 +26,6 @@ pnpm add @kubiks/otel-upstash-workflow
 import { serve as originalServe } from "@upstash/workflow";
 import { instrumentWorkflowServe } from "@kubiks/otel-upstash-workflow";
 
-// Instrument the serve function
 const serve = instrumentWorkflowServe(originalServe);
 
 export const POST = serve(async (context) => {
@@ -203,7 +204,6 @@ import { instrumentWorkflowServe } from "@kubiks/otel-upstash-workflow";
 const serve = instrumentWorkflowServe(originalServe);
 
 export const POST = serve(async (context) => {
-  // Each step is automatically traced
   const data = await context.run("fetch-data", async () => {
     return await fetchFromDatabase();
   });
@@ -226,7 +226,6 @@ export const POST = serve(async (context) => {
     await sendEmail();
   });
 
-  // Sleep for 5 seconds
   await context.sleep("wait-5s", 5);
 
   await context.run("check-status", async () => {
@@ -243,7 +242,6 @@ export const POST = serve(async (context) => {
 const serve = instrumentWorkflowServe(originalServe);
 
 export const POST = serve(async (context) => {
-  // External HTTP call is traced
   const apiResponse = await context.call("fetch-user", "https://api.example.com/users/123", {
     method: "GET",
   });
@@ -266,7 +264,6 @@ export const POST = serve(async (context) => {
     await startLongRunningProcess();
   });
 
-  // Wait for an event with timeout
   const event = await context.waitForEvent("process-complete", "evt_123", 60000);
 
   await context.run("finalize", async () => {
@@ -290,7 +287,6 @@ const client = instrumentWorkflowClient(
   })
 );
 
-// Trigger a workflow
 const result = await client.trigger({
   url: "https://your-app.vercel.app/api/workflow",
   body: {
@@ -334,28 +330,15 @@ import { instrumentWorkflowServe } from "@kubiks/otel-upstash-workflow";
 
 const serve = instrumentWorkflowServe(originalServe);
 
-async function processOrder(orderId: string) {
-  // Your business logic
-  return { orderId, status: "processed" };
-}
-
-async function sendNotification(orderId: string) {
-  // Send notification
-  return { sent: true };
-}
-
 export const POST = serve(async (context) => {
   const orderId = context.requestPayload.orderId;
 
-  // Process the order
   const result = await context.run("process-order", async () => {
     return await processOrder(orderId);
   });
 
-  // Wait before sending notification
   await context.sleep("wait-1-minute", 60);
 
-  // Send notification
   await context.run("send-notification", async () => {
     return await sendNotification(orderId);
   });
@@ -393,8 +376,6 @@ export async function createOrder(orderId: string) {
 ```
 
 ## Configuration Options
-
-### InstrumentationConfig
 
 ```typescript
 interface InstrumentationConfig {
