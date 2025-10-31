@@ -19,6 +19,7 @@ Our goal is to bring the TypeScript ecosystem the observability tools it’s bee
 - [`@kubiks/otel-mongodb`](./packages/otel-mongodb/README.md)
 - [`@kubiks/otel-resend`](./packages/otel-resend/README.md)
 - [`@kubiks/otel-upstash-queues`](./packages/otel-upstash-queues/README.md)
+- [`@kubiks/otel-upstash-workflow`](./packages/otel-upstash-workflow/README.md)
 
 ---
 
