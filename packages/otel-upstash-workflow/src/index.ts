@@ -596,9 +596,10 @@ export function instrumentWorkflowClient<TClient extends Record<string, any>>(
   if (typeof (client as any).trigger === "function") {
     const originalTrigger = (client as any).trigger.bind(client);
 
-    (client as any).trigger = async function instrumentedTrigger(
-      options: any
-    ): Promise<any> {
+    (client as any).trigger = async function instrumentedTrigger<
+      TOptions = any,
+      TResult = any
+    >(options: TOptions): Promise<TResult> {
       const span = tracer.startSpan("workflow.trigger", {
         kind: SpanKind.CLIENT,
       });
@@ -609,30 +610,41 @@ export function instrumentWorkflowClient<TClient extends Record<string, any>>(
       });
 
       // Set URL if available
-      if (options?.url) {
-        span.setAttribute(SEMATTRS_WORKFLOW_URL, options.url);
+      if (options && typeof options === "object" && "url" in options) {
+        span.setAttribute(SEMATTRS_WORKFLOW_URL, (options as any).url);
       }
 
       // Capture body if configured
-      if (captureStepData && options?.body) {
-        const serialized = serializeStepData(options.body, maxStepDataLength);
+      if (
+        captureStepData &&
+        options &&
+        typeof options === "object" &&
+        "body" in options
+      ) {
+        const serialized = serializeStepData(
+          (options as any).body,
+          maxStepDataLength
+        );
         span.setAttribute(SEMATTRS_WORKFLOW_STEP_INPUT, serialized);
       }
 
       const activeContext = trace.setSpan(context.active(), span);
 
       try {
-        const result = await context.with(activeContext, () =>
+        const result = (await context.with(activeContext, () =>
           originalTrigger(options)
-        );
+        )) as TResult;
 
         // Capture workflow ID from response if available
         if (result && typeof result === "object") {
           if ("workflowId" in result && result.workflowId) {
-            span.setAttribute(SEMATTRS_WORKFLOW_ID, result.workflowId);
+            span.setAttribute(SEMATTRS_WORKFLOW_ID, result.workflowId as any);
           }
           if ("workflowRunId" in result && result.workflowRunId) {
-            span.setAttribute(SEMATTRS_WORKFLOW_RUN_ID, result.workflowRunId);
+            span.setAttribute(
+              SEMATTRS_WORKFLOW_RUN_ID,
+              result.workflowRunId as any
+            );
           }
         }
 
