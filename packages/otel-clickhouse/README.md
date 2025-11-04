@@ -2,6 +2,10 @@
 
 OpenTelemetry instrumentation for [ClickHouse](https://clickhouse.com/). Add distributed tracing to your database queries with detailed execution metrics including read/written rows, bytes, and timing information.
 
+![ClickHouse Trace Visualization](https://github.com/kubiks-inc/otel/blob/main/images/otel-clickhouse-trace.png)
+
+_Visualize your ClickHouse queries with detailed span information including operation type, execution metrics, and performance statistics._
+
 ## Features
 
 - ?? **Automatic Query Tracing** - All queries are automatically traced with detailed span information
