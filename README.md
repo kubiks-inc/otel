@@ -14,6 +14,7 @@ Our goal is to bring the TypeScript ecosystem the observability tools it’s bee
 
 - [`@kubiks/otel-autumn`](./packages/otel-autumn/README.md)
 - [`@kubiks/otel-better-auth`](./packages/otel-better-auth/README.md)
+- [`@kubiks/otel-clickhouse`](./packages/otel-clickhouse/README.md)
 - [`@kubiks/otel-drizzle`](./packages/otel-drizzle/README.md)
 - [`@kubiks/otel-e2b`](./packages/otel-e2b/README.md)
 - [`@kubiks/otel-inbound`](./packages/otel-inbound/README.md)
@@ -28,7 +29,6 @@ Our goal is to bring the TypeScript ecosystem the observability tools it’s bee
 
 - [Stripe](https://stripe.com/)
 - [Polar.sh](https://polar.sh/)
-- [ClickHouse](https://clickhouse.com/)
 - [AI SDK](https://ai-sdk.dev/)
 - [Mastra](https://mastra.ai/)
 - [Next.js Opentelemetry SDK](https://nextjs.org)
