@@ -9,6 +9,9 @@ import { instrumentClickHouse, type InstrumentClickHouseConfig } from "./index";
 
 interface MockClickHouseClient {
   query: (params: any) => Promise<any>;
+  insert: (params: any) => Promise<any>;
+  exec: (params: any) => Promise<any>;
+  command: (params: any) => Promise<any>;
 }
 
 describe("instrumentClickHouse", () => {
@@ -29,19 +32,32 @@ describe("instrumentClickHouse", () => {
     trace.disable();
   });
 
-  it("wraps the query method only once", () => {
+  it("wraps all methods only once", () => {
     const client = {
       query: vi.fn(),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any);
 
     expect(instrumented.query).not.toBeUndefined();
+    expect(instrumented.insert).not.toBeUndefined();
+    expect(instrumented.exec).not.toBeUndefined();
+    expect(instrumented.command).not.toBeUndefined();
+    
     const wrappedQuery = instrumented.query;
+    const wrappedInsert = instrumented.insert;
+    const wrappedExec = instrumented.exec;
+    const wrappedCommand = instrumented.command;
 
     instrumentClickHouse(client as any);
 
     expect(instrumented.query).toBe(wrappedQuery);
+    expect(instrumented.insert).toBe(wrappedInsert);
+    expect(instrumented.exec).toBe(wrappedExec);
+    expect(instrumented.command).toBe(wrappedCommand);
   });
 
   it("records a successful query", async () => {
@@ -62,6 +78,9 @@ describe("instrumentClickHouse", () => {
           },
         })
       ),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any);
@@ -97,6 +116,9 @@ describe("instrumentClickHouse", () => {
           },
         })
       ),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any, {
@@ -120,6 +142,9 @@ describe("instrumentClickHouse", () => {
     const error = new Error("Query failed");
     const client = {
       query: vi.fn(() => Promise.reject(error)),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any);
@@ -141,6 +166,9 @@ describe("instrumentClickHouse", () => {
   it("respects captureQueryText option", async () => {
     const client = {
       query: vi.fn(() => Promise.resolve({ response_headers: {} })),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any, {
@@ -160,6 +188,9 @@ describe("instrumentClickHouse", () => {
     const longQuery = "SELECT * FROM users WHERE " + "a = 1 AND ".repeat(200);
     const client = {
       query: vi.fn(() => Promise.resolve({ response_headers: {} })),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any, {
@@ -180,6 +211,9 @@ describe("instrumentClickHouse", () => {
   it("includes database name when configured", async () => {
     const client = {
       query: vi.fn(() => Promise.resolve({ response_headers: {} })),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any, {
@@ -198,6 +232,9 @@ describe("instrumentClickHouse", () => {
   it("includes network metadata when configured", async () => {
     const client = {
       query: vi.fn(() => Promise.resolve({ response_headers: {} })),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any, {
@@ -218,6 +255,9 @@ describe("instrumentClickHouse", () => {
   it("detects different operation types", async () => {
     const client = {
       query: vi.fn(() => Promise.resolve({ response_headers: {} })),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any);
@@ -242,6 +282,9 @@ describe("instrumentClickHouse", () => {
   it("handles queries without execution stats", async () => {
     const client = {
       query: vi.fn(() => Promise.resolve({ response_headers: {} })),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any, {
@@ -271,6 +314,9 @@ describe("instrumentClickHouse", () => {
           },
         })
       ),
+      insert: vi.fn(),
+      exec: vi.fn(),
+      command: vi.fn(),
     } as unknown as MockClickHouseClient;
 
     const instrumented = instrumentClickHouse(client as any, {
@@ -284,5 +330,275 @@ describe("instrumentClickHouse", () => {
 
     const span = spans[0];
     expect(span.attributes["clickhouse.read_rows"]).toBeUndefined();
+  });
+
+  describe("insert instrumentation", () => {
+    it("records a successful insert", async () => {
+      const client = {
+        query: vi.fn(),
+        insert: vi.fn(() =>
+          Promise.resolve({
+            executed: true,
+            query_id: "test-query-id",
+            response_headers: {
+              "x-clickhouse-summary": JSON.stringify({
+                read_rows: "0",
+                read_bytes: "0",
+                written_rows: "100",
+                written_bytes: "4096",
+                total_rows_to_read: "0",
+                result_rows: "0",
+                result_bytes: "0",
+                elapsed_ns: "500000",
+              }),
+            },
+          })
+        ),
+        exec: vi.fn(),
+        command: vi.fn(),
+      } as unknown as MockClickHouseClient;
+
+      const instrumented = instrumentClickHouse(client as any);
+
+      await instrumented.insert({
+        table: "users",
+        values: [{ id: 1, name: "Alice" }],
+        format: "JSONEachRow",
+      });
+
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.name).toBe("clickhouse.insert");
+      expect(span.status.code).toBe(SpanStatusCode.OK);
+      expect(span.attributes["db.system"]).toBe("clickhouse");
+      expect(span.attributes["db.operation"]).toBe("INSERT");
+      expect(span.attributes["db.statement"]).toBe(
+        "INSERT INTO users FORMAT JSONEachRow"
+      );
+      expect(span.attributes["clickhouse.written_rows"]).toBe(100);
+      expect(span.attributes["clickhouse.written_bytes"]).toBe(4096);
+    });
+
+    it("records insert with columns", async () => {
+      const client = {
+        query: vi.fn(),
+        insert: vi.fn(() =>
+          Promise.resolve({
+            executed: true,
+            query_id: "test-query-id",
+            response_headers: {},
+          })
+        ),
+        exec: vi.fn(),
+        command: vi.fn(),
+      } as unknown as MockClickHouseClient;
+
+      const instrumented = instrumentClickHouse(client as any);
+
+      await instrumented.insert({
+        table: "users",
+        values: [{ id: 1, name: "Alice" }],
+        format: "JSONEachRow",
+        columns: ["id", "name"],
+      });
+
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.attributes["db.statement"]).toBe(
+        "INSERT INTO users (id, name) FORMAT JSONEachRow"
+      );
+    });
+
+    it("records insert with except columns", async () => {
+      const client = {
+        query: vi.fn(),
+        insert: vi.fn(() =>
+          Promise.resolve({
+            executed: true,
+            query_id: "test-query-id",
+            response_headers: {},
+          })
+        ),
+        exec: vi.fn(),
+        command: vi.fn(),
+      } as unknown as MockClickHouseClient;
+
+      const instrumented = instrumentClickHouse(client as any);
+
+      await instrumented.insert({
+        table: "users",
+        values: [{ id: 1, name: "Alice" }],
+        columns: { except: ["created_at"] },
+      });
+
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.attributes["db.statement"]).toBe(
+        "INSERT INTO users (* EXCEPT (created_at)) FORMAT JSONCompactEachRow"
+      );
+    });
+
+    it("records a failed insert", async () => {
+      const error = new Error("Insert failed");
+      const client = {
+        query: vi.fn(),
+        insert: vi.fn(() => Promise.reject(error)),
+        exec: vi.fn(),
+        command: vi.fn(),
+      } as unknown as MockClickHouseClient;
+
+      const instrumented = instrumentClickHouse(client as any);
+
+      await expect(
+        instrumented.insert({
+          table: "users",
+          values: [{ id: 1, name: "Alice" }],
+        })
+      ).rejects.toThrow("Insert failed");
+
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.name).toBe("clickhouse.insert");
+      expect(span.status.code).toBe(SpanStatusCode.ERROR);
+      expect(span.events).toHaveLength(1);
+      expect(span.events[0].name).toBe("exception");
+    });
+  });
+
+  describe("exec instrumentation", () => {
+    it("records a successful exec", async () => {
+      const client = {
+        query: vi.fn(),
+        insert: vi.fn(),
+        exec: vi.fn(() =>
+          Promise.resolve({
+            query_id: "test-query-id",
+            stream: {},
+          })
+        ),
+        command: vi.fn(),
+      } as unknown as MockClickHouseClient;
+
+      const instrumented = instrumentClickHouse(client as any);
+
+      await instrumented.exec({
+        query: "INSERT INTO users FORMAT JSONEachRow",
+      });
+
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.name).toBe("clickhouse.insert");
+      expect(span.status.code).toBe(SpanStatusCode.OK);
+      expect(span.attributes["db.system"]).toBe("clickhouse");
+      expect(span.attributes["db.operation"]).toBe("INSERT");
+      expect(span.attributes["db.statement"]).toBe(
+        "INSERT INTO users FORMAT JSONEachRow"
+      );
+    });
+
+    it("records a failed exec", async () => {
+      const error = new Error("Exec failed");
+      const client = {
+        query: vi.fn(),
+        insert: vi.fn(),
+        exec: vi.fn(() => Promise.reject(error)),
+        command: vi.fn(),
+      } as unknown as MockClickHouseClient;
+
+      const instrumented = instrumentClickHouse(client as any);
+
+      await expect(
+        instrumented.exec({ query: "CREATE TABLE test (id UInt32)" })
+      ).rejects.toThrow("Exec failed");
+
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.status.code).toBe(SpanStatusCode.ERROR);
+      expect(span.events).toHaveLength(1);
+      expect(span.events[0].name).toBe("exception");
+    });
+  });
+
+  describe("command instrumentation", () => {
+    it("records a successful command", async () => {
+      const client = {
+        query: vi.fn(),
+        insert: vi.fn(),
+        exec: vi.fn(),
+        command: vi.fn(() =>
+          Promise.resolve({
+            query_id: "test-query-id",
+            response_headers: {
+              "x-clickhouse-summary": JSON.stringify({
+                read_rows: "0",
+                read_bytes: "0",
+                written_rows: "0",
+                written_bytes: "0",
+                total_rows_to_read: "0",
+                result_rows: "0",
+                result_bytes: "0",
+                elapsed_ns: "100000",
+              }),
+            },
+          })
+        ),
+      } as unknown as MockClickHouseClient;
+
+      const instrumented = instrumentClickHouse(client as any);
+
+      await instrumented.command({
+        query: "CREATE TABLE test (id UInt32) ENGINE = Memory",
+      });
+
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.name).toBe("clickhouse.create");
+      expect(span.status.code).toBe(SpanStatusCode.OK);
+      expect(span.attributes["db.system"]).toBe("clickhouse");
+      expect(span.attributes["db.operation"]).toBe("CREATE");
+      expect(span.attributes["db.statement"]).toBe(
+        "CREATE TABLE test (id UInt32) ENGINE = Memory"
+      );
+      expect(span.attributes["clickhouse.elapsed_ns"]).toBe(100000);
+    });
+
+    it("records a failed command", async () => {
+      const error = new Error("Command failed");
+      const client = {
+        query: vi.fn(),
+        insert: vi.fn(),
+        exec: vi.fn(),
+        command: vi.fn(() => Promise.reject(error)),
+      } as unknown as MockClickHouseClient;
+
+      const instrumented = instrumentClickHouse(client as any);
+
+      await expect(
+        instrumented.command({ query: "DROP TABLE test" })
+      ).rejects.toThrow("Command failed");
+
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.name).toBe("clickhouse.drop");
+      expect(span.status.code).toBe(SpanStatusCode.ERROR);
+      expect(span.events).toHaveLength(1);
+      expect(span.events[0].name).toBe("exception");
+    });
   });
 });

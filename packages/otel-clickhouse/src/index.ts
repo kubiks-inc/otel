@@ -9,6 +9,9 @@ import type {
   ClickHouseClient,
   DataFormat,
   QueryParams,
+  InsertParams,
+  ExecParams,
+  CommandParams,
 } from "@clickhouse/client";
 
 const DEFAULT_TRACER_NAME = "@kubiks/otel-clickhouse";
@@ -258,8 +261,9 @@ function addExecutionStats(span: Span, summary: ClickHouseSummary): void {
 /**
  * Instruments a ClickHouse client with OpenTelemetry tracing.
  *
- * This function wraps the client's `query` method to create spans for each database
- * operation, including detailed execution statistics from ClickHouse response headers.
+ * This function wraps the client's `query`, `insert`, `exec`, and `command` methods to create 
+ * spans for each database operation, including detailed execution statistics from ClickHouse 
+ * response headers.
  *
  * The instrumentation is idempotent - calling it multiple times on the same client will only
  * instrument it once.
@@ -385,6 +389,188 @@ export function instrumentClickHouse(
     try {
       const result = await context.with(activeContext, () =>
         originalQuery(params)
+      );
+
+      // Extract and add execution statistics from response headers
+      if (captureExecutionStats) {
+        const summary = extractSummary(result.response_headers);
+        if (summary) {
+          addExecutionStats(span, summary);
+        }
+      }
+
+      finalizeSpan(span);
+      return result;
+    } catch (error) {
+      finalizeSpan(span, error);
+      throw error;
+    }
+  };
+
+  // Store the original insert method
+  const originalInsert = client.insert.bind(client);
+
+  // Create instrumented insert method
+  client.insert = async function instrumentedInsert<T = unknown>(
+    params: InsertParams<any, T>
+  ): Promise<any> {
+    const spanName = "clickhouse.insert";
+
+    // Start span
+    const span = tracer.startSpan(spanName, { kind: SpanKind.CLIENT });
+    span.setAttribute(SEMATTRS_DB_SYSTEM, "clickhouse");
+    span.setAttribute(SEMATTRS_DB_OPERATION, "INSERT");
+
+    if (dbName) {
+      span.setAttribute(SEMATTRS_DB_NAME, dbName);
+    }
+
+    // Capture the table name and format
+    if (captureQueryText) {
+      const table = params.table;
+      const format = params.format || "JSONCompactEachRow";
+      let statement = `INSERT INTO ${table}`;
+      
+      if (params.columns) {
+        if (Array.isArray(params.columns)) {
+          statement += ` (${params.columns.join(", ")})`;
+        } else if ("except" in params.columns) {
+          statement += ` (* EXCEPT (${params.columns.except.join(", ")}))`;
+        }
+      }
+      
+      statement += ` FORMAT ${format}`;
+      const sanitized = sanitizeQueryText(statement, maxQueryTextLength);
+      span.setAttribute(SEMATTRS_DB_STATEMENT, sanitized);
+    }
+
+    if (peerName) {
+      span.setAttribute(SEMATTRS_NET_PEER_NAME, peerName);
+    }
+
+    if (peerPort) {
+      span.setAttribute(SEMATTRS_NET_PEER_PORT, peerPort);
+    }
+
+    const activeContext = trace.setSpan(context.active(), span);
+
+    try {
+      const result = await context.with(activeContext, () =>
+        originalInsert(params)
+      );
+
+      // Extract and add execution statistics from response headers
+      if (captureExecutionStats && result.executed) {
+        const summary = extractSummary(result.response_headers);
+        if (summary) {
+          addExecutionStats(span, summary);
+        }
+      }
+
+      finalizeSpan(span);
+      return result;
+    } catch (error) {
+      finalizeSpan(span, error);
+      throw error;
+    }
+  };
+
+  // Store the original exec method
+  const originalExec = client.exec.bind(client);
+
+  // Create instrumented exec method
+  client.exec = async function instrumentedExec(
+    params: ExecParams
+  ): Promise<any> {
+    const queryText = params.query;
+    const operation = queryText ? extractOperation(queryText) : undefined;
+    const spanName = operation
+      ? `clickhouse.${operation.toLowerCase()}`
+      : "clickhouse.exec";
+
+    // Start span
+    const span = tracer.startSpan(spanName, { kind: SpanKind.CLIENT });
+    span.setAttribute(SEMATTRS_DB_SYSTEM, "clickhouse");
+
+    if (operation) {
+      span.setAttribute(SEMATTRS_DB_OPERATION, operation);
+    }
+
+    if (dbName) {
+      span.setAttribute(SEMATTRS_DB_NAME, dbName);
+    }
+
+    if (captureQueryText && queryText !== undefined) {
+      const sanitized = sanitizeQueryText(queryText, maxQueryTextLength);
+      span.setAttribute(SEMATTRS_DB_STATEMENT, sanitized);
+    }
+
+    if (peerName) {
+      span.setAttribute(SEMATTRS_NET_PEER_NAME, peerName);
+    }
+
+    if (peerPort) {
+      span.setAttribute(SEMATTRS_NET_PEER_PORT, peerPort);
+    }
+
+    const activeContext = trace.setSpan(context.active(), span);
+
+    try {
+      const result = await context.with(activeContext, () =>
+        originalExec(params)
+      );
+
+      finalizeSpan(span);
+      return result;
+    } catch (error) {
+      finalizeSpan(span, error);
+      throw error;
+    }
+  };
+
+  // Store the original command method
+  const originalCommand = client.command.bind(client);
+
+  // Create instrumented command method
+  client.command = async function instrumentedCommand(
+    params: CommandParams
+  ): Promise<any> {
+    const queryText = params.query;
+    const operation = queryText ? extractOperation(queryText) : undefined;
+    const spanName = operation
+      ? `clickhouse.${operation.toLowerCase()}`
+      : "clickhouse.command";
+
+    // Start span
+    const span = tracer.startSpan(spanName, { kind: SpanKind.CLIENT });
+    span.setAttribute(SEMATTRS_DB_SYSTEM, "clickhouse");
+
+    if (operation) {
+      span.setAttribute(SEMATTRS_DB_OPERATION, operation);
+    }
+
+    if (dbName) {
+      span.setAttribute(SEMATTRS_DB_NAME, dbName);
+    }
+
+    if (captureQueryText && queryText !== undefined) {
+      const sanitized = sanitizeQueryText(queryText, maxQueryTextLength);
+      span.setAttribute(SEMATTRS_DB_STATEMENT, sanitized);
+    }
+
+    if (peerName) {
+      span.setAttribute(SEMATTRS_NET_PEER_NAME, peerName);
+    }
+
+    if (peerPort) {
+      span.setAttribute(SEMATTRS_NET_PEER_PORT, peerPort);
+    }
+
+    const activeContext = trace.setSpan(context.active(), span);
+
+    try {
+      const result = await context.with(activeContext, () =>
+        originalCommand(params)
       );
 
       // Extract and add execution statistics from response headers
