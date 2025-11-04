@@ -3,6 +3,8 @@
 OpenTelemetry instrumentation for [E2B Sandboxes](https://e2b.dev).
 Capture spans for sandbox lifecycle, code execution, file operations, and command execution to monitor and debug your E2B sandbox operations.
 
+![E2B Trace Visualization](https://github.com/kubiks-inc/otel/blob/main/images/otel-e2b-trace.png)
+
 ## Installation
 
 ```bash
