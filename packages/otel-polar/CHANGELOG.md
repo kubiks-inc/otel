@@ -1,5 +1,11 @@
 # @kubiks/otel-polar
 
+## 1.0.1
+
+### Patch Changes
+
+- [`b57d2c6`](https://github.com/kubiks-inc/otel/commit/b57d2c6a467255428e80005d4cedeb1135d3cf71) Thanks [@alex-holovach](https://github.com/alex-holovach)! - update image
+
 ## 1.0.0
 
 ### Major Changes
