@@ -4,6 +4,10 @@ OpenTelemetry instrumentation for the [Polar.sh](https://polar.sh) Node.js SDK.
 Capture spans for every Polar API call, enrich them with operation metadata,
 and keep an eye on your billing, subscriptions, and customer operations from your traces.
 
+![Polar Trace Visualization](https://github.com/kubiks-inc/otel/blob/main/images/otel-polar-trace.png)
+
+_Visualize your Polar operations with detailed span information including resource IDs, organization IDs, and operation metadata._
+
 ## Installation
 
 ```bash
@@ -372,23 +376,6 @@ fastify.get("/customers", async (request, reply) => {
   return customers;
 });
 ```
-
-## Troubleshooting
-
-### No spans appearing
-
-Ensure you have:
-1. Initialized OpenTelemetry SDK before instrumenting Polar
-2. Called `instrumentPolar()` after creating the Polar client
-3. Configured a span exporter (Console, OTLP, etc.)
-
-### Spans not linking to parent traces
-
-The instrumentation uses `context.active()` to link spans. Ensure your HTTP framework supports OpenTelemetry context propagation.
-
-### Double instrumentation
-
-The instrumentation is idempotent. Calling `instrumentPolar()` multiple times on the same client is safe and will only instrument once.
 
 ## TypeScript Support
 
